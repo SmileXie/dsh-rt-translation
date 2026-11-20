@@ -78,7 +78,13 @@ export class Translator {
     const model = live?.model ?? this.options.model
     const followAgentDefault = live?.followAgentDefault ?? this.options.followAgentDefault
     const agentDefaultModel = this.options.agentDefaultModel
-    if (provider !== '' && model !== '') return { provider, model }
+    if (provider !== '') {
+      if (model !== '') return { provider, model }
+      const models = await this.llm.listModels?.(provider)
+      const chosen = models?.[0]
+      if (chosen === undefined) throw new Error(`模型路由 ${provider} 没有可用模型`)
+      return { provider, model: chosen.id }
+    }
     if (followAgentDefault) {
       const selection = agentDefaultModel?.()
       if (selection !== undefined) return selection
@@ -89,7 +95,7 @@ export class Translator {
     const models = await this.llm.listModels?.(first.id)
     const chosen = models?.[0]
     if (chosen === undefined) throw new Error(`模型路由 ${first.id} 没有可用模型`)
-    return { provider: provider === '' ? first.id : provider, model: model === '' ? chosen.id : model }
+    return { provider: first.id, model: model === '' ? chosen.id : model }
   }
 
   /** Stream translated text deltas for one utterance. */

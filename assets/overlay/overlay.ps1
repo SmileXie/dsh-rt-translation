@@ -1,4 +1,4 @@
-﻿param([switch]$SelfTest, [string]$ConfigBase64 = '')
+﻿param([switch]$SelfTest, [switch]$SelfTestMeeting, [string]$ConfigBase64 = '')
 
 $ErrorActionPreference = 'Stop'
 
@@ -138,6 +138,13 @@ $script:barStickyUntil = [DateTime]::MinValue
 $script:awaySince = $null
 $script:hotkeys = @{}
 $script:pendingSubtitle = @{}
+$script:ui = [pscustomobject]@{
+  tray = $true
+  controlBar = $true
+  controlBarHotkey = 'Ctrl+Alt+H'
+  showStatusDot = $true
+  hotkeysEnabled = $true
+}
 
 function Clamp-Number($value, [double]$min, [double]$max, [double]$fallback) {
   $parsed = 0.0
@@ -274,18 +281,22 @@ function Render-Cues {
   $rendered = 0
   foreach ($cue in $visible) {
     if ($rendered -ge [int]$script:style.maxLines) { break }
+    $hasTarget = $false
+    foreach ($candidate in @($cue.lines)) {
+      if ($candidate.kind -eq 'target' -and ([string]$candidate.text).Trim() -ne '') { $hasTarget = $true; break }
+    }
     foreach ($line in @($cue.lines)) {
       if ($rendered -ge [int]$script:style.maxLines) { break }
       $text = [string]$line.text
       if ($text.Trim() -eq '') { continue }
-      if (-not $script:style.bilingual -and $line.kind -eq 'source') { continue }
+      if (-not $script:style.bilingual -and $hasTarget -and $line.kind -eq 'source') { continue }
 
       $block = New-Object System.Windows.Controls.TextBlock
       $block.Text = $text
       $block.TextWrapping = [System.Windows.TextWrapping]::Wrap
       $block.TextAlignment = [System.Windows.TextAlignment]::Center
       $block.FontFamily = New-Object System.Windows.Media.FontFamily ($script:style.fontFamily)
-      if ($line.kind -eq 'source') {
+      if ($line.kind -eq 'source' -and $script:style.bilingual) {
         $block.FontSize = [math]::Max(10, [double]$script:style.fontSize * 0.62)
         $block.Foreground = New-SolidBrush 255 214 214 218
         $block.Opacity = 0.78
@@ -688,6 +699,7 @@ function Flush-SubtitlePatch {
 }
 
 function Initialize-Tray {
+  if ($null -ne $script:notify) { return }
   $script:notify = New-Object System.Windows.Forms.NotifyIcon
   $script:notify.Icon = [System.Drawing.SystemIcons]::Application
   $script:notify.Text = 'DSH 实时字幕'
@@ -820,25 +832,113 @@ function Show-AppDialog {
   [void]$dialog.ShowDialog()
 }
 
-function Initialize-Hotkeys {
-  $script:hotkeyHost = New-Object RtHotkeyHost
-  $script:hotkeyHost.OnHotkey = [Action[int]]{ param($id) Handle-Hotkey $id }
+function Convert-Hotkey([string]$text) {
+  $result = @{ modifiers = 0; vk = 0; ok = $false }
+  if ([string]::IsNullOrWhiteSpace($text)) { return $result }
+  $parts = @($text.Split('+') | ForEach-Object { $_.Trim() })
+  if ($parts.Count -lt 1) { return $result }
+  $modifiers = 0
+  for ($i = 0; $i -lt $parts.Count - 1; $i++) {
+    switch ($parts[$i].ToLowerInvariant()) {
+      'ctrl' { $modifiers = $modifiers -bor 0x0002 }
+      'control' { $modifiers = $modifiers -bor 0x0002 }
+      'alt' { $modifiers = $modifiers -bor 0x0001 }
+      'shift' { $modifiers = $modifiers -bor 0x0004 }
+      'win' { $modifiers = $modifiers -bor 0x0008 }
+      default { return $result }
+    }
+  }
+  $key = $parts[$parts.Count - 1].ToUpperInvariant()
+  $vk = 0
+  if ($key -match '^[A-Z0-9]$') {
+    $vk = [int][char]$key
+  } elseif ($key -match '^F([1-9]|1[0-2])$') {
+    $vk = 0x70 + [int]$Matches[1] - 1
+  } else {
+    return $result
+  }
+  return @{ modifiers = $modifiers; vk = $vk; ok = $true }
+}
+
+function Register-Hotkey([int]$id, [int]$modifiers, [int]$vk, [string]$name) {
+  if ($null -eq $script:hotkeyHost -or $script:hotkeys.ContainsKey($id)) { return }
+  if ($script:hotkeyHost.Register($id, $modifiers, $vk)) {
+    $script:hotkeys[$id] = $name
+  } else {
+    Send-Log ('热键注册失败: ' + $name)
+  }
+}
+
+function Register-PanelHotkey {
+  if ($null -eq $script:hotkeyHost) { return }
+  if ($script:hotkeys.ContainsKey(3)) {
+    try { $script:hotkeyHost.Unregister(3) } catch { }
+    $script:hotkeys.Remove(3)
+  }
+  if ([string]::IsNullOrWhiteSpace([string]$script:ui.controlBarHotkey)) { return }
+  $definition = Convert-Hotkey ([string]$script:ui.controlBarHotkey)
+  if (-not $definition.ok) {
+    Send-Log ('无法解析控制条热键: ' + [string]$script:ui.controlBarHotkey)
+    return
+  }
+  Register-Hotkey 3 ([int]$definition.modifiers) ([int]$definition.vk) 'panel'
+}
+
+function Register-Hotkeys {
+  if ($null -eq $script:hotkeyHost -or -not $script:ui.hotkeysEnabled) { return }
   $modifiers = 0x0001 -bor 0x0002
-  $definitions = @(
+  foreach ($definition in @(
     @{ id = 1; vk = 0x53; name = 'toggle' },
     @{ id = 2; vk = 0x43; name = 'clear' },
-    @{ id = 3; vk = 0x48; name = 'panel' },
     @{ id = 4; vk = 0x26; name = 'fontUp' },
     @{ id = 5; vk = 0x28; name = 'fontDown' },
     @{ id = 6; vk = 0x42; name = 'bilingual' }
-  )
-  foreach ($definition in $definitions) {
-    if ($script:hotkeyHost.Register([int]$definition.id, $modifiers, [int]$definition.vk)) {
-      $script:hotkeys[[int]$definition.id] = [string]$definition.name
-    } else {
-      Send-Log ('热键注册失败: ' + [string]$definition.name)
+  )) {
+    Register-Hotkey ([int]$definition.id) $modifiers ([int]$definition.vk) ([string]$definition.name)
+  }
+  Register-PanelHotkey
+}
+
+function Unregister-Hotkeys {
+  if ($null -ne $script:hotkeyHost) {
+    foreach ($id in @($script:hotkeys.Keys)) {
+      try { $script:hotkeyHost.Unregister([int]$id) } catch { }
     }
   }
+  $script:hotkeys = @{}
+}
+
+function Initialize-Hotkeys {
+  if ($null -eq $script:hotkeyHost) {
+    $script:hotkeyHost = New-Object RtHotkeyHost
+    $script:hotkeyHost.OnHotkey = [Action[int]]{ param($id) Handle-Hotkey $id }
+  }
+  Register-Hotkeys
+}
+
+function Apply-Ui($incoming) {
+  if ($null -eq $incoming) { return }
+  foreach ($property in $incoming.PSObject.Properties) {
+    switch ($property.Name) {
+      'tray' { $script:ui.tray = [bool]$property.Value }
+      'controlBar' { $script:ui.controlBar = [bool]$property.Value }
+      'controlBarHotkey' { $script:ui.controlBarHotkey = [string]$property.Value }
+      'showStatusDot' { $script:ui.showStatusDot = [bool]$property.Value }
+      'hotkeysEnabled' { $script:ui.hotkeysEnabled = [bool]$property.Value }
+    }
+  }
+  if ($script:ui.tray) {
+    Initialize-Tray
+  } elseif ($null -ne $script:notify) {
+    try { $script:notify.Visible = $false; $script:notify.Dispose() } catch { }
+    $script:notify = $null
+  }
+  if ($null -ne $script:statusDot) {
+    if ($script:ui.showStatusDot) { $script:statusDot.Visibility = [System.Windows.Visibility]::Visible }
+    else { $script:statusDot.Visibility = [System.Windows.Visibility]::Collapsed }
+  }
+  if (-not $script:ui.controlBar) { Hide-ControlBar }
+  if ($script:ui.hotkeysEnabled) { Register-Hotkeys } else { Unregister-Hotkeys }
 }
 
 function Handle-Hotkey([int]$id) {
@@ -917,6 +1017,7 @@ function Process-Line([string]$line) {
   try {
     switch ([string]$message.op) {
       'style' { Apply-Style $message.style; Render-Cues }
+      'ui' { Apply-Ui $message.ui }
       'cue' { Upsert-Cue $message.cue }
       'state' { Apply-State $message.state }
       'clear' { Clear-Cues }
@@ -957,7 +1058,7 @@ function Test-MouseZone {
   $area = [System.Windows.SystemParameters]::WorkArea
   $center = $area.Left + $area.Width / 2
   $nearBottom = ($point.Y -ge ($area.Bottom - 5)) -and ([math]::Abs($point.X - $center) -lt 260)
-  if ($nearBottom -and -not $script:bar.IsVisible) { Show-ControlBar $false }
+  if ($nearBottom -and -not $script:bar.IsVisible -and $script:ui.controlBar) { Show-ControlBar $false }
 
   if ($script:bar.IsVisible -and -not $script:settings.IsVisible) {
     $overBar = $script:bar.IsMouseOver
@@ -1016,18 +1117,30 @@ function Initialize-Windows {
 
 function Run-SelfTest {
   $script:style.fontSize = 34
+  if ($SelfTestMeeting) { $script:style.bilingual = $false }
   Update-StyleVisuals
   $script:subWindow.Show()
   $script:hwndSub = Get-WindowHandle $script:subWindow
   [RtNative]::MakeClickThrough($script:hwndSub)
-  Upsert-Cue ([pscustomobject]@{
-    id = 'selftest'
-    holdMs = 5000
-    lines = @(
-      [pscustomobject]@{ kind = 'target'; text = '实时字幕叠加窗自检'; live = $false },
-      [pscustomobject]@{ kind = 'source'; text = 'Subtitle overlay self-test'; live = $false }
-    )
-  })
+  if ($SelfTestMeeting) {
+    Upsert-Cue ([pscustomobject]@{
+      id = 'selftest'
+      holdMs = 5000
+      lines = @(
+        [pscustomobject]@{ kind = 'source'; text = '会议模式临时原文自检'; live = $true }
+      )
+    })
+  } else {
+    Upsert-Cue ([pscustomobject]@{
+      id = 'selftest'
+      holdMs = 5000
+      lines = @(
+        [pscustomobject]@{ kind = 'target'; text = '实时字幕叠加窗自检'; live = $false },
+        [pscustomobject]@{ kind = 'source'; text = 'Subtitle overlay self-test'; live = $false }
+      )
+    })
+  }
+  Send-Log ('selftest window visible=' + [string]$script:subWindow.IsVisible)
   $timer = New-Object System.Windows.Threading.DispatcherTimer
   $timer.Interval = [TimeSpan]::FromMilliseconds(1500)
   $timer.add_Tick({
@@ -1075,7 +1188,7 @@ function Run-Overlay {
 
 Initialize-Windows
 
-if ($SelfTest) {
+if ($SelfTest -or $SelfTestMeeting) {
   Run-SelfTest
 } else {
   Run-Overlay

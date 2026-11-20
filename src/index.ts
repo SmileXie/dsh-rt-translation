@@ -1,6 +1,6 @@
 /** DSH plugin entry: wires capture, SenseVoice, LLM translation, and the WPF overlay. */
 import { fileURLToPath } from 'node:url'
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-experimental-speech-to-text'
 import type {} from '@deepseek-ai/dsh-llm'
@@ -13,7 +13,7 @@ import { resolveConfig } from './config.ts'
 import { SenseVoiceClient } from './stt.ts'
 import { Translator } from './translate.ts'
 import { SubtitleModel } from './subtitle/state.ts'
-import { toStylePayload } from './subtitle/protocol.ts'
+import { toStylePayload, toUiConfig } from './subtitle/protocol.ts'
 import { WindowsWpfRenderer, type SpawnFn } from './subtitle/windows-wpf.ts'
 import { Controller } from './controller.ts'
 import { loopbackCapture } from './capture.ts'
@@ -29,7 +29,7 @@ export const inject = ['speechToText', 'llm', 'commands', 'tools', 'subprocess']
 interface SettingsService { update(namespace: string, patch: object): Promise<void> }
 interface AgentDefaultModel { currentSelection(): { provider: string; model: string } }
 
-export function apply(ctx: Context, config: RtConfig): void {
+export function apply(ctx: Context, config: Volatile<RtConfig>): void {
   if (process.platform !== 'win32') throw new Error('dsh-rt-translation v1 supports Windows only')
 
   const log = (message: string, error?: unknown): void => {
@@ -38,16 +38,19 @@ export function apply(ctx: Context, config: RtConfig): void {
     else ctx.logger.warn(`[rt-translation] ${message}${suffix}`)
   }
 
-  let settings: ResolvedSettings = resolveConfig(config)
+  let settings: ResolvedSettings = resolveConfig(config.get() as RtConfig)
   const entryId = ctx.fiber.entry?.options.id
   const settingsService = ctx.get('settings') as SettingsService | undefined
+  let persisted = entryId !== undefined && settingsService !== undefined
 
   const patchSettings = async (patch: Partial<ResolvedSettings>): Promise<void> => {
     settings = { ...settings, ...patch }
-    if (entryId === undefined || settingsService === undefined) return
+    if (entryId === undefined || settingsService === undefined) { persisted = false; return }
     try {
       await settingsService.update(entryId, patch as object)
+      persisted = true
     } catch (error) {
+      persisted = false
       log('settings update failed', error)
     }
   }
@@ -76,6 +79,10 @@ export function apply(ctx: Context, config: RtConfig): void {
       stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' },
       graceMs: 3000,
     })
+    child.stderr?.on('data', chunk => {
+      const text = String(chunk).trim()
+      if (text !== '') log(`overlay stderr: ${text}`)
+    })
     return {
       stdin: { write: chunk => { child.stdin?.write(chunk); return true } },
       stdout: { on: (event, cb) => { child.stdout?.on(event, cb as never) } },
@@ -85,11 +92,12 @@ export function apply(ctx: Context, config: RtConfig): void {
       kill: () => { child.terminate() },
     }
   }
+  let handleOverlayFatal = (error: unknown): void => { log('overlay fatal', error) }
   const renderer = new WindowsWpfRenderer({
     scriptPath: fileURLToPath(new URL('../assets/overlay/overlay.ps1', import.meta.url)),
     style: toStylePayload(settings.subtitle),
     spawn,
-    onFatal: error => log('overlay fatal', error),
+    onFatal: error => handleOverlayFatal(error),
   })
   const controller = new Controller({
     settings: () => settings,
@@ -101,7 +109,13 @@ export function apply(ctx: Context, config: RtConfig): void {
     capture: loopbackCapture,
     makePipeline: deps => new Pipeline(deps),
     log,
+    persistence: () => persisted,
   })
+
+  handleOverlayFatal = error => {
+    log('overlay fatal', error)
+    controller.rendererFailed(error)
+  }
 
   renderer.onAction(op => {
     if (op.op === 'error') log(`overlay error: ${op.text}`)
@@ -114,6 +128,7 @@ export function apply(ctx: Context, config: RtConfig): void {
   ctx.effect(() => {
     void renderer.start().then(() => {
       renderer.style(toStylePayload(settings.subtitle))
+      renderer.ui(toUiConfig(settings))
       renderer.state(controller.state())
       log('overlay ready')
     }).catch(error => log('overlay start failed', error))

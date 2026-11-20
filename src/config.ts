@@ -63,7 +63,7 @@ export interface ResolvedSettings {
 const language = z.union(['zh', 'en', 'ja', 'ko', 'yue'])
 const sourceLanguage = z.union(['auto', 'zh', 'en', 'ja', 'ko', 'yue'])
 
-export const Config: z<Partial<Config>, Config> = z.object({
+export const Config = z.object({
   sourceLanguage,
   targetLanguage: language,
   preset: z.union(['meeting', 'media']),
@@ -111,7 +111,7 @@ export const Config: z<Partial<Config>, Config> = z.object({
     showStatusDot: z.boolean(),
   }),
   hotkeys: z.object({ enabled: z.boolean() }),
-})
+}).volatile()
 
 const presets = {
   meeting: { silenceMs: 280, maxSegmentMs: 5000, maxLines: 2, holdMs: 3500, bilingual: false, fontSize: 30 },

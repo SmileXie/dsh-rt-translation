@@ -1,5 +1,6 @@
 /** `/rt` slash commands: direct user control without model messages. */
 import { readFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Controller } from './controller.ts'
 import type { Language, Preset, SourceLanguage } from './config.ts'
@@ -38,8 +39,12 @@ const ok = (text: string): CommandResult => ({ kind: 'success', text })
 const bad = (text: string): CommandResult => ({ kind: 'error', text })
 
 /** Load a per-title glossary file into `from=to` entries. */
-export async function loadGlossary(name: string, home = process.env.DSH_HOME): Promise<string[]> {
-  if (home === undefined || home === '') throw new Error('DSH_HOME 未设置，无法读取术语表')
+export function resolveDshHome(env = process.env.DSH_HOME, userHome = homedir()): string {
+  const trimmed = env?.trim()
+  return trimmed !== undefined && trimmed !== '' ? trimmed : join(userHome, '.dsh')
+}
+
+export async function loadGlossary(name: string, home = resolveDshHome()): Promise<string[]> {
   const path = join(home, 'rt-translation', 'glossaries', `${name}.json`)
   const raw = await readFile(path, 'utf8')
   const parsed: unknown = JSON.parse(raw)

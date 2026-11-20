@@ -33,3 +33,15 @@ test('显式 provider/model 优先', async () => {
   const t = new Translator({} as never, { provider: 'x', model: 'y', followAgentDefault: true, agentDefaultModel: () => ({ provider: 'p', model: 'm' }) })
   assert.deepEqual(await t.route(), { provider: 'x', model: 'y' })
 })
+
+test('只指定 provider 时选该 provider 第一个模型', async () => {
+  const llm = {
+    listProviders: () => [{ id: 'x' }, { id: 'y' }],
+    listModels: async (provider: string) => provider === 'y' ? [{ id: 'y1' }] : [{ id: 'x1' }],
+  }
+  const t = new Translator(llm as never, {
+    provider: 'y', model: '', followAgentDefault: true,
+    agentDefaultModel: () => ({ provider: 'p', model: 'm' }),
+  })
+  assert.deepEqual(await t.route(), { provider: 'y', model: 'y1' })
+})

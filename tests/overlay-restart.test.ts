@@ -58,3 +58,11 @@ test('进程退出只重启一次，第二次退出触发 onFatal', async () => 
   assert.equal(fake.children.length, 2)
   assert.equal(fatal, 1)
 })
+
+test('ready 前以 0 退出会 reject 而不是永远挂起', async () => {
+  const fake = makeSpawn()
+  const r = new WindowsWpfRenderer({ scriptPath: 'overlay.ps1', style, spawn: fake.spawn as never })
+  const started = r.start()
+  fake.children[0].exit(0)
+  await assert.rejects(started, /before ready/)
+})

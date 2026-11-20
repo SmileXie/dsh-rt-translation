@@ -27,13 +27,21 @@ export interface PipelineDeps {
   settings: () => ResolvedSettings
   now: () => number
   log: (msg: string, err?: unknown) => void
+  onFatal?: (error: unknown) => void
 }
 
-interface Job { kind: 'partial' | 'final'; audio: Int16Array; queuedAt: number }
+interface Job {
+  kind: 'partial' | 'final'
+  audio: Int16Array
+  queuedAt: number
+  abort: AbortController
+}
 
 const FRAME = 320
 const MAX_QUEUED_FINALS = 3
 const MAX_LATENCIES = 50
+const STT_TIMEOUT_MS = 60_000
+const TRANSLATE_TIMEOUT_MS = 30_000
 
 export class Pipeline {
   private readonly deps: PipelineDeps
@@ -50,6 +58,9 @@ export class Pipeline {
   private latencies: LatencyBreakdown[] = []
   private waiters: Array<() => void> = []
   private lastSpeech = 0
+  private activeJob: Job | undefined
+  private sttFailures = 0
+  private translationFailures = 0
 
   constructor(deps: PipelineDeps) {
     this.deps = deps
@@ -76,7 +87,12 @@ export class Pipeline {
     this.carry = this.carry.subarray(offset)
   }
 
-  pause(): void { this.paused = true }
+  pause(): void {
+    this.paused = true
+    for (const job of this.queue) job.abort.abort(new Error('pipeline paused'))
+    this.queue = []
+    this.activeJob?.abort.abort(new Error('pipeline paused'))
+  }
 
   resume(): void {
     this.paused = false
@@ -114,16 +130,28 @@ export class Pipeline {
 
   private accept(event: SegmentEvent): void {
     if (event.kind === 'partial' && !this.deps.settings().stt.partials) return
-    if (event.kind === 'final') {
+    if (event.kind === 'partial') {
+      this.dropPartials('superseded by newer partial')
+    } else {
+      this.dropPartials('superseded by final segment')
       const finals = this.queue.filter(job => job.kind === 'final')
       if (finals.length >= MAX_QUEUED_FINALS) {
         const index = this.queue.findIndex(job => job.kind === 'final')
-        if (index >= 0) this.queue.splice(index, 1)
+        if (index >= 0) {
+          const [dropped] = this.queue.splice(index, 1)
+          dropped?.abort.abort(new Error('stale final segment'))
+        }
         this.deps.log('drop stale segment')
       }
     }
-    this.queue.push({ kind: event.kind, audio: event.audio, queuedAt: this.deps.now() })
+    this.queue.push({ kind: event.kind, audio: event.audio, queuedAt: this.deps.now(), abort: new AbortController() })
     this.pump()
+  }
+
+  private dropPartials(reason: string): void {
+    for (const job of this.queue) if (job.kind === 'partial') job.abort.abort(new Error(reason))
+    this.queue = this.queue.filter(job => job.kind !== 'partial')
+    if (this.activeJob?.kind === 'partial') this.activeJob.abort.abort(new Error(reason))
   }
 
   private pump(): void {
@@ -136,7 +164,12 @@ export class Pipeline {
     while (this.queue.length > 0) {
       const job = this.queue.shift()
       if (job === undefined) break
-      try { await this.handle(job) } catch (error) { this.deps.log(`${job.kind} job failed`, error) }
+      this.activeJob = job
+      try { await this.handle(job) } catch (error) {
+        if (!job.abort.signal.aborted && !this.lifetime.signal.aborted) this.deps.log(`${job.kind} job failed`, error)
+      } finally {
+        if (this.activeJob === job) this.activeJob = undefined
+      }
     }
     this.running = false
     if (this.queue.length === 0) {
@@ -153,7 +186,19 @@ export class Pipeline {
     const id = job.kind === 'final' ? (this.currentId ?? this.nextId()) : (this.currentId ??= this.nextId())
     if (job.kind === 'final') this.currentId = undefined
 
-    const { text } = await this.deps.stt.transcribe(pcm16ToWav(job.audio), settings.sourceLanguage, this.lifetime.signal)
+    let text: string
+    try {
+      ({ text } = await this.deps.stt.transcribe(pcm16ToWav(job.audio), settings.sourceLanguage, this.jobSignal(job, STT_TIMEOUT_MS)))
+    } catch (error) {
+      if (job.abort.signal.aborted || this.lifetime.signal.aborted) return
+      this.sttFailures += 1
+      this.deps.log('stt failed', error)
+      if (this.sttFailures >= 3) { this.deps.onFatal?.(error); return }
+      if (job.kind === 'final') this.showFailure(id, '⚠ 识别失败')
+      return
+    }
+    if (job.abort.signal.aborted || this.lifetime.signal.aborted) return
+    this.sttFailures = 0
     const transcribedAt = this.deps.now()
     const sttMs = transcribedAt - started
     const source = text.trim()
@@ -180,19 +225,32 @@ export class Pipeline {
     this.renderLatest()
     let translated = ''
     let firstToken = 0
-    for await (const delta of this.deps.translator.translate({
-      text: source,
-      source: settings.sourceLanguage,
-      target: settings.targetLanguage,
-      context: this.context.slice(-settings.translate.contextTurns),
-      glossary: [...settings.translate.glossary, ...settings.media.glossary],
-      signal: this.lifetime.signal,
-    })) {
-      if (firstToken === 0) firstToken = this.deps.now() - transcribedAt
-      translated += delta
-      this.deps.subtitles.appendTranslation(id, delta)
+    try {
+      for await (const delta of this.deps.translator.translate({
+        text: source,
+        source: settings.sourceLanguage,
+        target: settings.targetLanguage,
+        context: this.context.slice(-settings.translate.contextTurns),
+        glossary: [...settings.translate.glossary, ...settings.media.glossary],
+        signal: this.jobSignal(job, TRANSLATE_TIMEOUT_MS),
+      })) {
+        if (firstToken === 0) firstToken = this.deps.now() - transcribedAt
+        translated += delta
+        this.deps.subtitles.appendTranslation(id, delta)
+        this.renderLatest()
+      }
+    } catch (error) {
+      if (job.abort.signal.aborted || this.lifetime.signal.aborted) return
+      this.translationFailures += 1
+      this.deps.log('translation failed', error)
+      if (this.translationFailures >= 3) { this.deps.onFatal?.(error); return }
+      this.deps.subtitles.markFailed(id, '⚠ 翻译失败')
+      this.deps.subtitles.finishCue(id, this.deps.now())
       this.renderLatest()
+      this.record({ queueWait, stt: sttMs, firstToken, total: this.deps.now() - job.queuedAt })
+      return
     }
+    this.translationFailures = 0
     const final = cleanTranslation(translated)
     if (final === '') {
       this.deps.log('empty translation')
@@ -205,6 +263,16 @@ export class Pipeline {
       if (this.context.length > 8) this.context.shift()
     }
     this.record({ queueWait, stt: sttMs, firstToken, total: this.deps.now() - job.queuedAt })
+  }
+
+  private jobSignal(job: Job, timeoutMs: number): AbortSignal {
+    return AbortSignal.any([this.lifetime.signal, job.abort.signal, AbortSignal.timeout(timeoutMs)])
+  }
+
+  private showFailure(id: string, warning: string): void {
+    this.deps.subtitles.upsertSource(id, warning, false)
+    this.deps.subtitles.finishCue(id, this.deps.now())
+    this.renderLatest()
   }
 
   private record(sample: LatencyBreakdown): void {

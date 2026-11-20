@@ -29,8 +29,18 @@ export interface StylePayload {
   fontFamily: string
 }
 
+/** Overlay chrome options from `ui.*` and `hotkeys.*`. */
+export interface UiConfigPayload {
+  tray: boolean
+  controlBar: boolean
+  controlBarHotkey: string
+  showStatusDot: boolean
+  hotkeysEnabled: boolean
+}
+
 export type HostOp =
   | { op: 'style'; style: StylePayload }
+  | { op: 'ui'; ui: UiConfigPayload }
   | { op: 'cue'; cue: Cue }
   | { op: 'state'; state: UiState }
   | { op: 'panel'; visible: boolean | 'toggle' }
@@ -91,5 +101,16 @@ export function toStylePayload(subtitle: ResolvedSettings['subtitle']): StylePay
     bilingual: subtitle.bilingual,
     display: subtitle.display,
     fontFamily: subtitle.fontFamily,
+  }
+}
+
+/** Project host settings onto the overlay chrome payload. */
+export function toUiConfig(settings: ResolvedSettings): UiConfigPayload {
+  return {
+    tray: settings.ui.tray,
+    controlBar: settings.ui.controlBar,
+    controlBarHotkey: settings.ui.controlBarHotkey,
+    showStatusDot: settings.ui.showStatusDot,
+    hotkeysEnabled: settings.hotkeys.enabled,
   }
 }

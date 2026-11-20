@@ -1,7 +1,7 @@
 /** Resident PowerShell/WPF overlay process driven by NDJSON over stdio. */
 import { spawn as nodeSpawn } from 'node:child_process'
 import { decodeOverlayLine, encodeOp } from './protocol.ts'
-import type { HostOp, OverlayOp, StylePayload, UiState } from './protocol.ts'
+import type { HostOp, OverlayOp, StylePayload, UiConfigPayload, UiState } from './protocol.ts'
 import type { SubtitleRenderer } from './renderer.ts'
 import type { Cue } from './state.ts'
 
@@ -43,6 +43,7 @@ export class WindowsWpfRenderer implements SubtitleRenderer {
   private readonly listeners = new Set<(op: OverlayOp) => void>()
   private readonly waiters: StartWaiter[] = []
   private stylePayload: StylePayload
+  private uiPayload: UiConfigPayload | undefined
   private child: OverlayChild | undefined
   private buffer = ''
   private restarts = 0
@@ -77,10 +78,17 @@ export class WindowsWpfRenderer implements SubtitleRenderer {
     this.write({ op: 'style', style })
   }
 
+  ui(config: UiConfigPayload): void {
+    this.uiPayload = config
+    this.write({ op: 'ui', ui: config })
+  }
+
   clear(): void { this.write({ op: 'clear' }) }
 
   /** Ask the overlay to flip the control bar; it owns the visibility bit. */
   showPanel(): void { this.write({ op: 'panel', visible: 'toggle' }) }
+
+  hidePanel(): void { this.write({ op: 'panel', visible: false }) }
 
   onAction(cb: (op: OverlayOp) => void): void { this.listeners.add(cb) }
 
@@ -120,6 +128,7 @@ export class WindowsWpfRenderer implements SubtitleRenderer {
     child.stdout.on('data', chunk => { this.receive(String(chunk)) })
     child.onExit(code => { this.handleExit(child, code) })
     child.stdin.write(encodeOp({ op: 'style', style: this.stylePayload }))
+    if (this.uiPayload !== undefined) child.stdin.write(encodeOp({ op: 'ui', ui: this.uiPayload }))
   }
 
   private receive(text: string): void {
@@ -146,7 +155,11 @@ export class WindowsWpfRenderer implements SubtitleRenderer {
   private handleExit(child: OverlayChild, code: number | null): void {
     if (this.child !== child) return
     this.child = undefined
-    if (this.disposed || code === 0) return
+    if (this.disposed) return
+    if (code === 0) {
+      if (this.waiters.length > 0) this.fail(new Error('overlay exited before ready'))
+      return
+    }
     const limit = this.options.restartLimit ?? 1
     if (this.restarts < limit) {
       this.restarts += 1

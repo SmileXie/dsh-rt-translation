@@ -23,6 +23,10 @@ export interface ControllerDeps {
   capture: AudioSourceFactory
   makePipeline: (deps: PipelineDeps) => Pipeline
   log: (msg: string, err?: unknown) => void
+  /** Whether runtime setting changes reach the profile; false shows a status warning. */
+  persistence?: () => boolean
+  /** Retry delays for capture failures; tests can shorten them. */
+  retryDelays?: number[]
 }
 
 const LANGUAGES = new Set(['zh', 'en', 'ja', 'ko', 'yue'])
@@ -31,6 +35,7 @@ const PRESET_SUBTITLE = {
   meeting: { fontSize: 30, maxLines: 2, holdMs: 3500, bilingual: false },
   media: { fontSize: 34, maxLines: 3, holdMs: 6000, bilingual: true },
 } as const
+const PRESET_STYLE_KEYS = ['fontSize', 'maxLines', 'holdMs', 'bilingual'] as const
 
 export class Controller {
   private readonly deps: ControllerDeps
@@ -44,9 +49,14 @@ export class Controller {
   private disposed = false
   private listeningSince = 0
   private lastIdleCheck = 0
+  private startGeneration = 0
+  private captureRetrying = false
+  private captureOpenedAt = 0
+  private readonly backoff: number[]
 
   constructor(deps: ControllerDeps) {
     this.deps = deps
+    this.backoff = deps.retryDelays ?? BACKOFF
   }
 
   /** Prepare the recognizer and start capturing system audio. */
@@ -54,17 +64,20 @@ export class Controller {
     if (this.disposed) return
     if (this.phase === 'listening') return
     if (this.phase === 'paused') { this.resumeFromPause(); return }
+    const generation = ++this.startGeneration
     this.setPhase('preparing')
     try {
       await this.deps.stt.ensureReady()
     } catch (error) {
-      this.fail(error)
+      if (generation === this.startGeneration) this.fail(error)
       return
     }
+    if (generation !== this.startGeneration || this.disposed) return
+    this.captureRetries = 0
     try {
       this.openCapture()
     } catch (error) {
-      this.fail(error)
+      if (generation === this.startGeneration) this.fail(error)
       return
     }
     this.listeningSince = Date.now()
@@ -74,6 +87,18 @@ export class Controller {
 
   /** Stop capture and clear the screen; the overlay process stays resident. */
   async stop(): Promise<void> {
+    await this.halt()
+    this.deps.renderer.hidePanel()
+  }
+
+  async restart(): Promise<void> {
+    await this.halt()
+    await this.start()
+  }
+
+  /** Stop capture and translation without touching overlay visibility. */
+  private async halt(): Promise<void> {
+    this.startGeneration += 1
     this.source?.close()
     this.source = undefined
     this.stopMonitor()
@@ -83,11 +108,6 @@ export class Controller {
     this.deps.renderer.clear()
     this.error = null
     this.setPhase('idle')
-  }
-
-  async restart(): Promise<void> {
-    await this.stop()
-    await this.start()
   }
 
   /** Change both subtitle languages and persist them. */
@@ -101,11 +121,21 @@ export class Controller {
   /** Switch the meeting/media preset. */
   async setMode(preset: Preset): Promise<void> {
     if (preset !== 'meeting' && preset !== 'media') throw new Error(`不支持的模式: ${preset}`)
-    const subtitle = { ...this.deps.settings().subtitle, ...PRESET_SUBTITLE[preset] }
+    const settings = this.deps.settings()
+    const previous = PRESET_SUBTITLE[settings.preset]
+    const next = PRESET_SUBTITLE[preset]
+    const changes: Partial<ResolvedSettings['subtitle']> = {}
+    for (const key of PRESET_STYLE_KEYS) {
+      if (settings.subtitle[key] === previous[key]) Object.assign(changes, { [key]: next[key] })
+    }
+    const subtitle = { ...settings.subtitle, ...changes }
     await this.deps.patchSettings({ preset, subtitle })
     this.applySubtitle()
     if (this.phase === 'listening') await this.restart()
-    else this.emit()
+    else {
+      if (this.phase === 'paused') await this.resetPipeline()
+      this.emit()
+    }
   }
 
   /** Apply a partial subtitle style change from the settings panel or hotkeys. */
@@ -176,6 +206,7 @@ export class Controller {
       `模式: ${settings.preset}`,
       `识别: ${this.deps.stt.status()}`,
       `翻译: ${settings.translate.provider || '跟随默认'} / ${settings.translate.model || '自动'}`,
+      ...this.deps.persistence?.() === false ? ['持久化: 未写入 profile（仅内存）'] : [],
       `延迟: P50 ${Math.round(stats.p50)}ms / P90 ${Math.round(stats.p90)}ms (${stats.count})`,
       ...stats.breakdown === undefined ? [] : [`分段: 队列 ${Math.round(stats.breakdown.queueWait)}ms / 识别 ${Math.round(stats.breakdown.stt)}ms / 首字 ${Math.round(stats.breakdown.firstToken)}ms`],
       `错误: ${this.error ?? '无'}`,
@@ -196,6 +227,9 @@ export class Controller {
 
   onState(cb: (state: UiState) => void): void { this.listeners.add(cb) }
 
+  /** Mark the controller failed after the renderer process dies. */
+  rendererFailed(error: unknown): void { this.fail(error) }
+
   async dispose(): Promise<void> {
     this.disposed = true
     await this.stop()
@@ -204,15 +238,25 @@ export class Controller {
 
   /** Capture health check, exposed so tests can drive it without timers. */
   async _checkCaptureForTest(): Promise<void> {
+    if (this.captureRetrying) return
     const source = this.source
-    if (source === undefined || source.lastError === null) { this.captureRetries = 0; return }
+    if (source === undefined) return
+    if (source.lastError === null) {
+      if (this.captureRetries > 0 && Date.now() - this.captureOpenedAt > 10_000) this.captureRetries = 0
+      return
+    }
     const message = source.lastError
-    if (this.captureRetries >= BACKOFF.length) { this.fail(new Error(message)); return }
-    const delay = BACKOFF[this.captureRetries++]
+    if (this.captureRetries >= this.backoff.length) { this.fail(new Error(message)); return }
+    const delay = this.backoff[this.captureRetries++]
+    this.captureRetrying = true
     this.deps.log(`capture failed: ${message}; retrying in ${delay}ms`)
-    await new Promise(resolve => setTimeout(resolve, delay))
-    if (this.disposed) return
-    try { this.openCapture() } catch (error) { this.fail(error) }
+    try {
+      await new Promise(resolve => setTimeout(resolve, delay))
+      if (this.disposed || this.phase !== 'listening') return
+      try { this.openCapture() } catch (error) { this.fail(error) }
+    } finally {
+      this.captureRetrying = false
+    }
   }
 
   /** Meeting-mode idle check, exposed so tests can drive it without timers. */
@@ -246,13 +290,14 @@ export class Controller {
       settings: this.deps.settings,
       now: () => Date.now(),
       log: this.deps.log,
+      onFatal: error => this.fail(error),
     })
     this.pipeline = pipeline
     this.source = this.deps.capture.open(chunk => pipeline.feed(chunk), {
       mode: settings.capture.mode,
       appName: settings.capture.appName,
     })
-    this.captureRetries = 0
+    this.captureOpenedAt = Date.now()
     this.startMonitor()
   }
 
@@ -271,12 +316,19 @@ export class Controller {
     this.monitor = undefined
   }
 
+  private async resetPipeline(): Promise<void> {
+    const pipeline = this.pipeline
+    this.pipeline = undefined
+    await pipeline?.stop()
+  }
+
   /** Resume from meeting idle pause; capture was closed on pause, so reopen it. */
   private resumeFromPause(): void {
     if (this.source === undefined) {
       try { this.openCapture() } catch (error) { this.fail(error); return }
     }
     this.pipeline?.resume()
+    this.captureRetries = 0
     this.listeningSince = Date.now()
     this.lastIdleCheck = Date.now()
     this.setPhase('listening')
@@ -293,6 +345,8 @@ export class Controller {
     this.source?.close()
     this.source = undefined
     this.stopMonitor()
+    void this.pipeline?.stop()
+    this.pipeline = undefined
     this.setPhase('error')
   }
 

@@ -45,11 +45,8 @@ export class SubtitleModel {
   beginTranslation(id: string): void {
     const cue = this.find(id)
     if (cue === undefined) return
-    if (this.bilingual) {
-      cue.lines.push({ kind: 'target', text: '', live: true })
-      return
-    }
-    cue.lines = [{ kind: 'target', text: '', live: true }]
+    if (cue.lines.some(line => line.kind === 'target')) return
+    cue.lines.push({ kind: 'target', text: '', live: true })
   }
 
   /** Append streamed translation text to the cue's target line. */
@@ -59,6 +56,20 @@ export class SubtitleModel {
     let line = cue.lines.find(l => l.kind === 'target')
     if (line === undefined) { line = { kind: 'target', text: '', live: true }; cue.lines.push(line) }
     line.text += delta
+  }
+
+  /** Replace a failed translation with the source plus a visible warning. */
+  markFailed(id: string, warning: string): void {
+    const cue = this.find(id)
+    if (cue === undefined) return
+    const source = cue.lines.find(line => line.kind === 'source')
+    if (this.bilingual) {
+      cue.lines = source === undefined
+        ? [{ kind: 'target', text: warning, live: false }]
+        : [source, { kind: 'target', text: warning, live: false }]
+      return
+    }
+    cue.lines = [{ kind: 'source', text: source === undefined ? warning : `${source.text}  ${warning}`, live: false }]
   }
 
   /** Mark the cue complete so its hold timer starts. */

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { encodeOp, decodeOverlayLine } from '../src/subtitle/protocol.ts'
+import { encodeOp, decodeOverlayLine, toUiConfig } from '../src/subtitle/protocol.ts'
+import { resolveConfig } from '../src/config.ts'
 
 test('encodeOp 输出单行 JSON 加换行', () => {
   assert.equal(encodeOp({ op: 'clear' }), '{"op":"clear"}\n')
@@ -20,4 +21,18 @@ test('decode 校验 action 名称与 value 类型', () => {
 
 test('未知 op 被忽略', () => {
   assert.equal(decodeOverlayLine('{"op":"nope"}'), undefined)
+})
+
+test('toUiConfig 投影托盘、控制条与热键设置', () => {
+  const config = resolveConfig({
+    ui: { tray: false, controlBar: false, controlBarHotkey: 'Ctrl+Shift+U', showStatusDot: false },
+    hotkeys: { enabled: false },
+  })
+  assert.deepEqual(toUiConfig(config), {
+    tray: false,
+    controlBar: false,
+    controlBarHotkey: 'Ctrl+Shift+U',
+    showStatusDot: false,
+    hotkeysEnabled: false,
+  })
 })

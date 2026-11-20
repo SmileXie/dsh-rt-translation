@@ -9,7 +9,7 @@ DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播
 - 托盘菜单、悬浮控制条、全局热键、斜杠命令、模型工具五种入口共用同一个控制器。
 - 字幕对屏幕共享**可见**（刻意不启用 `WDA_EXCLUDEFROMCAPTURE`），共享整个桌面或录屏时会出现在画面里。
 - 字幕窗永久点击穿透、不抢焦点、不出现在 Alt+Tab；控制条是独立可点击窗口，默认隐藏。
-- overlay 进程常驻，`/rt stop` 只停止采集并隐藏字幕，热键和托盘随时能再次开始。
+- overlay 进程常驻，`/rt stop` 只停止采集、隐藏字幕与控制条，热键和托盘随时能再次开始。
 
 ## 环境要求
 
@@ -34,7 +34,7 @@ pnpm dsh web --patch D:\my_code\dsh-rt-translation\cordis.patch.yml
 ```powershell
 dsh --profile rt --from-default-profile web --dump-config
 dsh plugin --profile rt add D:\my_code\dsh-rt-translation
-dsh plugin --profile rt --dump-config
+dsh --profile rt --dump-config
 dsh --profile rt
 ```
 
@@ -64,7 +64,7 @@ provider 名称、模型名和密钥引用按你自己的 DSH 配置替换。
 1. 启动 DSH 后托盘会出现「DSH 实时字幕」图标，`powershell` overlay 进程常驻。
 2. 点托盘图标或按 `Ctrl+Alt+H` 打开控制条，点 ▶（或托盘「开始翻译」）。
 3. 首次会准备 SenseVoice：控制条状态点为黄色，`/rt status` 显示下载/加载进度；完成后自动开始收听。
-4. 播放一段视频，字幕出现在屏幕底部。会议模式先显示临时原文，译文首个 token 到达后原地替换。
+4. 播放一段视频，字幕出现在屏幕底部。会议模式先显示临时原文；译文首个 token 到达后切成译文，原文行隐藏。影视模式始终保留原文与译文两行。
 
 不采音频也可以先调样式：
 
@@ -85,6 +85,25 @@ provider 名称、模型名和密钥引用按你自己的 DSH 配置替换。
 
 切换模式会立即把预设写入字幕样式；正在收听时会重连一次采集，让切分参数生效。
 
+## UI 与热键配置
+
+以下配置写在 profile 的 `cordis.patch.yml` 中，修改后重启 DSH：
+
+```yaml
+- id: rt-translation
+  name: dsh-rt-translation
+  config:
+    ui:
+      tray: true                 # 是否创建托盘图标
+      controlBar: true           # 是否允许鼠标热区自动唤出控制条
+      controlBarHotkey: Ctrl+Alt+H  # 控制条热键；空字符串 = 不注册
+      showStatusDot: true        # 是否显示控制条状态点
+    hotkeys:
+      enabled: true              # 是否注册全局热键
+```
+
+`/rt ui` 始终可以通过命令或托盘手动显隐控制条，不受 `ui.controlBar` 影响；该开关只控制鼠标热区的自动唤出。
+
 ## 热键
 
 | 热键 | 作用 |
@@ -99,7 +118,7 @@ provider 名称、模型名和密钥引用按你自己的 DSH 配置替换。
 
 | 命令 | 作用 |
 | --- | --- |
-| `/rt start` / `/rt stop` | 开始 / 停止 |
+| `/rt start` / `/rt stop` | 开始 / 停止；stop 同时隐藏字幕与控制条 |
 | `/rt status` | 状态、识别器、翻译路由、P50/P90 延迟、最近错误 |
 | `/rt lang <src> <tgt>` | 设置语言，如 `/rt lang auto en` |
 | `/rt mode meeting|media` | 切换预设 |
@@ -133,6 +152,10 @@ provider 名称、模型名和密钥引用按你自己的 DSH 配置替换。
 - 指定应用模式取该进程名下的第一个 PID；同名多实例暂不区分。
 - v1 只支持 Windows；Linux 的扩展点见下节。
 - 首次准备语音模型时控制条只显示黄色状态点，暂时没有细粒度下载进度条和中途取消按钮。
+- 设置面板暂时没有「翻译模型」选择；请用 `/rt model <provider> <model>`。
+- 强制切分长句后，重叠部分的文本去重尚未实现。
+- 字体默认使用统一字体，尚未按目的语言自动选择字体；多显示器只按主显示器定位。
+- `debug.dumpAudioDir` 尚未接入，不会把音频落盘。
 - 托盘图标使用系统通用图标，不是专属品牌图标。
 - 控制条在鼠标离开约 3 秒后自动隐藏；需要常驻时可再次按 `Ctrl+Alt+H`。
 
@@ -142,6 +165,12 @@ provider 名称、模型名和密钥引用按你自己的 DSH 配置替换。
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File assets/overlay/overlay.ps1 -SelfTest
+```
+
+验证会议模式的「只有原文行」也能显示：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File assets/overlay/overlay.ps1 -SelfTestMeeting
 ```
 
 检查 overlay 是否在运行：
@@ -187,3 +216,5 @@ loopback-capture (PCM 48k stereo)
 - 会议模式中文→英文只显示译文；影视模式英文→中文显示原文 + 译文双语。
 - 实际端到端延迟样例：分段队列 0 ms、识别 62 ms、首字 523 ms、总计约 726 ms。
 - 斜杠命令、控制条按钮与 overlay 进程常驻正常；托盘菜单和全局热键已接入，尚未逐项人工点验。
+- 会议模式只有原文行时字幕窗可见；`/rt stop` 会清空字幕并隐藏控制条。
+- `/rt lang`、`/rt mode` 等运行期设置会持久化到 profile，重启 DSH 后保持。
