@@ -11,36 +11,38 @@ DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播
 - 字幕窗永久点击穿透、不抢焦点、不出现在 Alt+Tab；控制条是独立可点击窗口，默认隐藏。
 - overlay 进程常驻，`/rt stop` 只停止采集、隐藏字幕与控制条，热键和托盘随时能再次开始。
 
-## 环境要求
+## 依赖
 
-- Windows 10 20348+ 或 Windows 11。指定应用 / 排除自身的采集依赖 Windows 进程回环（build 20348+）。
-- Node.js 24（DSH 自带 CLI 运行方式即可）。
-- 首次开始翻译时会下载 SenseVoiceSmall INT8 模型与 Silero VAD（约 240 MB），之后离线可用。
-- 需要一个可用的 DSH LLM 路由；默认跟随 DSH 当前默认模型。
+| 依赖 | 要求 | 说明 |
+| --- | --- | --- |
+| 操作系统 | Windows 11，或 Windows 10 build 20348+ | 指定应用 / 排除自身采集依赖 Windows 进程回环；v1 只支持 Windows |
+| DSH | 可正常启动的 DeepSeek Harness | 用 DSH 自带的 Node 24 CLI 即可，不需要单独安装 Node |
+| LLM 路由 | 任一可用 provider + model | 默认跟随 DSH 当前默认模型；也可 `/rt model <provider> <model>` 覆盖 |
+| 语音识别 | 无需单独安装 | bundle 已挂载 `speech-to-text` 与 SenseVoice provider；首次下载约 240 MB 模型 |
+| PowerShell | Windows 自带的 Windows PowerShell 5.1 | 字幕窗是 WPF overlay；脚本必须以 UTF-8 BOM 保存 |
+| 音频设备 | 默认输出设备能正常播放 | 采集系统回环，不需要麦克风，也不依赖虚拟声卡 |
+| 网络 | 首次准备模型时需要 | 模型缓存后识别可离线；翻译仍需要 LLM 可用 |
 
 ## 安装
 
-### 开发模式（直接用当前目录）
+### 方式一：作为 bundle 安装（推荐）
+
+把插件装进独立的 `rt` profile，之后用 `dsh --profile rt` 启动，不影响默认 profile。
 
 ```powershell
-cd D:\my_code\deepseek-harness
-pnpm dsh web --patch D:\my_code\dsh-rt-translation\cordis.patch.yml
-```
-
-`cordis.patch.yml` 会同时挂载 `speech-to-text`、`speech-to-text-sensevoice` 和本插件。移动目录后需要同步修改里面的绝对路径。
-
-### 作为 bundle 安装
-
-```powershell
+# 1. 创建 rt profile（--dump-config 只生成并打印，不启动）
 dsh --profile rt --from-default-profile web --dump-config
+
+# 2. 安装插件（路径指向本仓库目录）
 dsh plugin --profile rt add D:\my_code\dsh-rt-translation
+
+# 3. 确认三个条目已挂载：speech-to-text、speech-to-text-sensevoice、rt-translation
 dsh --profile rt --dump-config
-dsh --profile rt
 ```
 
 `cordis.bundle.patch.yml` 使用包名 `dsh-rt-translation`，由 profile 内的插件目录解析。
 
-新 profile 不会自动继承默认 profile 的模型配置。如果启动后模型选择器显示「暂无可用模型」，把默认 profile 里的 provider 条目复制到 `$DSH_HOME/profiles/rt/cordis.patch.yml`：
+新 profile 不会自动继承默认 profile 的模型配置。如果启动后模型选择器显示「暂无可用模型」或 `/rt status` 的「翻译」为空，把默认 profile 的 provider 条目复制到 `$DSH_HOME/profiles/rt/cordis.patch.yml`（`$DSH_HOME` 默认是 `C:\Users\<你>\.dsh`）：
 
 ```yaml
 - id: llm-pi-ai
@@ -57,20 +59,83 @@ dsh --profile rt
     reasoningEffort: high
 ```
 
-provider 名称、模型名和密钥引用按你自己的 DSH 配置替换。
+provider 名称、模型名和密钥环境变量按你自己的 DSH 配置替换。
 
-## 第一次使用
+### 方式二：开发模式（直接用当前目录）
 
-1. 启动 DSH 后托盘会出现「DSH 实时字幕」图标，`powershell` overlay 进程常驻。
-2. 点托盘图标或按 `Ctrl+Alt+H` 打开控制条，点 ▶（或托盘「开始翻译」）。
-3. 首次会准备 SenseVoice：控制条状态点为黄色，`/rt status` 显示下载/加载进度；完成后自动开始收听。
-4. 播放一段视频，字幕出现在屏幕底部。会议模式先显示临时原文；译文首个 token 到达后切成译文，原文行隐藏。影视模式始终保留原文与译文两行。
+```powershell
+cd D:\my_code\deepseek-harness
+pnpm dsh web --patch D:\my_code\dsh-rt-translation\cordis.patch.yml
+```
 
-不采音频也可以先调样式：
+`cordis.patch.yml` 会同时挂载 `speech-to-text`、`speech-to-text-sensevoice` 和本插件。移动目录后需要同步修改里面的绝对路径。
+
+## 启动
+
+```powershell
+# 启动并自动打开 DSH Web
+dsh --profile rt
+
+# 或者只启动服务，不打开浏览器
+dsh --profile rt --no-open
+```
+
+启动成功后：
+
+- 任务栏托盘出现「DSH 实时字幕」图标，`powershell` overlay 进程开始常驻。
+- 字幕窗默认隐藏；打开控制条后才会看到播放、语言、模式按钮。
+- 托盘、控制条和热键都不依赖 DSH 网页窗口；只有斜杠命令需要打开 DSH Web 会话。
+
+## 使用
+
+### 第一次开始
+
+1. 点托盘图标，或按 `Ctrl+Alt+H`，或把鼠标移到屏幕底部中央，唤出控制条。
+2. 在控制条选择源语言与目的语言（例如 `自动 → English`）。
+3. 点 ▶，或托盘「开始翻译」，或按 `Ctrl+Alt+S`，或发送 `/rt start`。
+4. 首次会准备 SenseVoice 模型：状态点变黄，下载/加载完成后自动进入收听。
+5. 播放视频或加入会议，字幕出现在屏幕底部。
+
+会议模式先显示临时原文，译文首个 token 到达后切为译文；影视模式保留原文 + 译文两行。
+
+### 日常操作
+
+| 想做什么 | 操作 |
+| --- | --- |
+| 开始 / 停止 | 控制条 ▶/⏸、托盘「开始翻译/停止」、`Ctrl+Alt+S`、`/rt start` / `/rt stop` |
+| 切换语言 | 控制条两个下拉框、`/rt lang auto en` |
+| 切换会议/影视 | 控制条「会议/影视」、`/rt mode meeting` / `/rt mode media` |
+| 调字号 | `Ctrl+Alt+↑` / `Ctrl+Alt+↓`，或控制条「⋯」设置面板 |
+| 原文/双语 | `Ctrl+Alt+B` |
+| 清屏 | `Ctrl+Alt+C` |
+| 重新连接音频 | 托盘「重新连接音频」、`/rt restart` |
+| 只看某个应用的声音 | `/rt app chrome.exe`，`/rt app off` 恢复系统声音 |
+
+`/rt stop` 只停止采集并隐藏字幕/控制条，overlay 与托盘继续常驻，随时可以再次开始。
+
+### 不采音频先调样式
 
 ```text
 /rt test 你好世界
 ```
+
+`/rt test` 要等翻译完成后才上屏；停留时间为会议 3.5 秒、影视 6 秒。
+
+### 验证安装
+
+```text
+/rt status
+```
+
+应看到 `状态: idle`、`识别: 待机`，且「翻译」显示可用的 provider / model。播放一段语音后，`延迟` 的样本数会增加。
+
+## 卸载
+
+```powershell
+dsh plugin --profile rt remove dsh-rt-translation
+```
+
+如需同时删除模型缓存，删除 `~\.dsh\speech-to-text\sensevoice`。运行期设置保存在 `~\.dsh\profiles\rt\cordis.patch.yml`。
 
 ## 会议模式与影视模式
 
