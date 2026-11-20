@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@deepseek-ai/cordis": ["D:/my_code/deepseek-harness/packages/cordis/src/index.ts"],
+      "@deepseek-ai/dsh-llm": ["D:/my_code/deepseek-harness/packages/llm/llm/src/index.ts"],
+      "@deepseek-ai/dsh-llm/types": ["D:/my_code/deepseek-harness/packages/llm/llm/src/types.ts"],
+      "@deepseek-ai/dsh-experimental-speech-to-text": ["D:/my_code/deepseek-harness/packages/experimental/speech-to-text/src/index.ts"],
+      "@deepseek-ai/dsh-commands": ["D:/my_code/deepseek-harness/packages/interaction/commands/src/index.ts"],
+      "@deepseek-ai/dsh-tools": ["D:/my_code/deepseek-harness/packages/core/tools/src/index.ts"],
+      "@deepseek-ai/dsh-subprocess": ["D:/my_code/deepseek-harness/packages/subprocess/subprocess/src/index.ts"],
+      "@deepseek-ai/dsh-settings": ["D:/my_code/deepseek-harness/packages/settings/settings/src/index.ts"]
+    }
+  },
+  "include": ["src", "tests"]
+}
