@@ -210,11 +210,31 @@ loopback-capture (PCM 48k stereo)
 
 ## 已验证
 
-2026-11-20 在 Windows 11 + DSH Web + `qwen-token-plan-cn / deepseek-v4.1-flash` 上完成真机验收：
+### 自动化回归（2026-11-20）
+
+- `npm test`：70/70 通过；`npm run typecheck` 通过。
+- `overlay.ps1 -SelfTest`、`-SelfTestMeeting` 均输出 `selftest window visible=True`，退出码 0。
+- NDJSON 冒烟（`style` / `ui` / `cue` / `panel` / `shutdown`）正常退出。
+
+### 真机验收（Windows 11 + DSH Web + `qwen-token-plan-cn / deepseek-v4.1-flash`）
 
 - 系统回环采集（`system-exclude-self`）→ SenseVoice → LLM 翻译 → WPF 字幕全链路可用。
-- 会议模式中文→英文只显示译文；影视模式英文→中文显示原文 + 译文双语。
-- 实际端到端延迟样例：分段队列 0 ms、识别 62 ms、首字 523 ms、总计约 726 ms。
-- 斜杠命令、控制条按钮与 overlay 进程常驻正常；托盘菜单和全局热键已接入，尚未逐项人工点验。
-- 会议模式只有原文行时字幕窗可见；`/rt stop` 会清空字幕并隐藏控制条。
-- `/rt lang`、`/rt mode` 等运行期设置会持久化到 profile，重启 DSH 后保持。
+- 中文语音 → 英文：4 个样本，P50 975 ms / P90 1417 ms；分段队列 0 ms、识别 73 ms、首字 834 ms。
+- 英文语音 + `auto` 源语言：先显示实时英文原文，译文到达后切为中文；会议模式在译文到达前保留原文行。
+- 影视模式显示小字原文 + 大字译文；会议模式只显示译文。控制条含状态点、播放、源/目的语言、会议/影视与设置入口。
+- overlay 窗口样式为 `TOPMOST | TRANSPARENT | TOOLWINDOW | LAYERED | NOACTIVATE`：字幕可见、点击穿透、不抢焦点、不进入 Alt+Tab；字幕中心 `WindowFromPoint` 命中下层窗口。
+- `/rt stop` 后 5 秒：DSH Node 进程 CPU 约 0.28%、overlay 约 0.11%（20 核占比）；overlay 进程保留，热键可再次开始。
+- 全局热键：`Ctrl+Alt+S` 从停止态到 `preparing → listening` 约 40 ms；`Ctrl+Alt+C` 清屏；`Ctrl+Alt+H` 唤出控制条。
+- `/rt lang`、`/rt mode` 等运行期设置持久化到 profile，重启 DSH 后保持。
+
+`/rt test <text>` 在翻译完成后才上屏；停留时间为会议 3.5 s、影视 6 s。截图验证时请使用 DPI-aware 工具，否则在 200% 缩放下会截到字幕上方区域。
+
+### 尚未人工验收
+
+- 真实会议软件共享整个屏幕时的字幕可见性。
+- 连续电影对白 10 分钟压测（不积压、不重叠、不残留）。
+- 拔插耳机或切换默认输出设备后的自动恢复与 `/rt restart`。
+- 独占全屏播放器上的置顶限制提示（悬停状态点）。
+- 完全不开 DSH 窗口的纯托盘启动/退出流程。
+- 中/英/日/韩/粤五语种音频两两互译矩阵（当前系统 TTS 只覆盖中/英）。
+- 首次模型下载的进度显示与中途取消。
