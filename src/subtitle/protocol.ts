@@ -4,7 +4,8 @@ import type { Cue } from './state.ts'
 
 export type ActionName =
   | 'toggle' | 'start' | 'stop' | 'clear' | 'restart'
-  | 'setSource' | 'setTarget' | 'setMode' | 'setFontSize' | 'showPanel' | 'quit'
+  | 'setSource' | 'setTarget' | 'setMode' | 'setFontSize' | 'setSubtitle'
+  | 'setApp' | 'showPanel' | 'quit'
 
 export interface UiState {
   running: boolean
@@ -32,6 +33,7 @@ export type HostOp =
   | { op: 'style'; style: StylePayload }
   | { op: 'cue'; cue: Cue }
   | { op: 'state'; state: UiState }
+  | { op: 'panel'; visible: boolean | 'toggle' }
   | { op: 'clear' }
   | { op: 'shutdown' }
 
@@ -43,7 +45,8 @@ export type OverlayOp =
 
 const ACTIONS = new Set<string>([
   'toggle', 'start', 'stop', 'clear', 'restart',
-  'setSource', 'setTarget', 'setMode', 'setFontSize', 'showPanel', 'quit',
+  'setSource', 'setTarget', 'setMode', 'setFontSize', 'setSubtitle',
+  'setApp', 'showPanel', 'quit',
 ])
 
 /** Serialize one host instruction as a single NDJSON line. */
