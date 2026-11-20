@@ -7,7 +7,7 @@
   "files": ["src", "assets", "cordis.patch.yml", "README.md"],
   "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
   "scripts": {
-    "test": "node --test tests/",
+    "test": "node --test \"tests/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -20,3 +20,4 @@
   },
   "engines": { "node": ">=20.19.0" }
 }
+

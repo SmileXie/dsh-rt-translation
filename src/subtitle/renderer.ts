@@ -8,6 +8,8 @@ export interface SubtitleRenderer {
   state(state: UiState): void
   style(style: StylePayload): void
   clear(): void
+  showPanel(): void
   onAction(cb: (op: OverlayOp) => void): void
   dispose(): Promise<void>
 }
+

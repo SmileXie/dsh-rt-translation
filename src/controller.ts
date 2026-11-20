@@ -96,6 +96,31 @@ export class Controller {
     this.emit()
   }
 
+  /** Switch capture scope and restart capture when it is already running. */
+  async setCapture(mode: 'system' | 'system-exclude-self' | 'app', appName: string): Promise<void> {
+    const settings = this.deps.settings()
+    await this.deps.patchSettings({ capture: { ...settings.capture, mode, appName } })
+    if (this.phase === 'listening') await this.restart()
+    else this.emit()
+  }
+
+  /** Override the translation route. */
+  async setModel(provider: string, model: string): Promise<void> {
+    const settings = this.deps.settings()
+    await this.deps.patchSettings({ translate: { ...settings.translate, provider, model } })
+    this.emit()
+  }
+
+  /** Replace the active glossary entries. */
+  async setGlossary(entries: string[]): Promise<void> {
+    const settings = this.deps.settings()
+    await this.deps.patchSettings({ translate: { ...settings.translate, glossary: entries } })
+    this.emit()
+  }
+
+  /** Ask the overlay to show its control bar. */
+  showControlBar(): void { this.deps.renderer.showPanel() }
+
   /** Translate one literal string and show it, without touching capture. */
   async test(text: string): Promise<void> {
     const settings = this.deps.settings()
@@ -221,3 +246,4 @@ export class Controller {
     this.deps.renderer.state(state)
   }
 }
+
