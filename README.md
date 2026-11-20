@@ -15,7 +15,7 @@ DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播
 
 - Windows 10 20348+ 或 Windows 11。指定应用 / 排除自身的采集依赖 Windows 进程回环（build 20348+）。
 - Node.js 24（DSH 自带 CLI 运行方式即可）。
-- 首次开始翻译时会下载 SenseVoiceSmall INT8 模型（约 1 GB），之后离线可用。
+- 首次开始翻译时会下载 SenseVoiceSmall INT8 模型与 Silero VAD（约 240 MB），之后离线可用。
 - 需要一个可用的 DSH LLM 路由；默认跟随 DSH 当前默认模型。
 
 ## 安装
@@ -39,6 +39,25 @@ dsh --profile rt
 ```
 
 `cordis.bundle.patch.yml` 使用包名 `dsh-rt-translation`，由 profile 内的插件目录解析。
+
+新 profile 不会自动继承默认 profile 的模型配置。如果启动后模型选择器显示「暂无可用模型」，把默认 profile 里的 provider 条目复制到 `$DSH_HOME/profiles/rt/cordis.patch.yml`：
+
+```yaml
+- id: llm-pi-ai
+  name: "@deepseek-ai/dsh-llm-pi-ai"
+  config:
+    providers:
+      qwen-token-plan-cn:
+        apiKeyEnv: QWEN_TOKEN_PLAN_CN_API_KEY
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: qwen-token-plan-cn
+    model: deepseek-v4.1-flash
+    reasoningEffort: high
+```
+
+provider 名称、模型名和密钥引用按你自己的 DSH 配置替换。
 
 ## 第一次使用
 
@@ -113,6 +132,9 @@ dsh --profile rt
 - 多显示器 DPI 不同时按主显示器缩放。
 - 指定应用模式取该进程名下的第一个 PID；同名多实例暂不区分。
 - v1 只支持 Windows；Linux 的扩展点见下节。
+- 首次准备语音模型时控制条只显示黄色状态点，暂时没有细粒度下载进度条和中途取消按钮。
+- 托盘图标使用系统通用图标，不是专属品牌图标。
+- 控制条在鼠标离开约 3 秒后自动隐藏；需要常驻时可再次按 `Ctrl+Alt+H`。
 
 ## 自检与排障
 
@@ -135,6 +157,8 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
 - 看不到托盘：先跑上面的 `-SelfTest`；若自检正常，检查 DSH 启动日志里是否有 `[rt-translation] overlay start failed`。
 - 没有译文：`/rt status` 看「翻译」路由；没有默认模型时用 `/rt model <provider> <model>`。
 - 没有声音：确认播放设备是默认输出；指定应用模式确认进程名（如 `chrome.exe`）。
+- 模型选择器显示「暂无可用模型」：当前 profile 缺少 LLM provider 配置，按「作为 bundle 安装」一节的 YAML 补到 profile 的 `cordis.patch.yml` 后重启。
+- 首次 `/rt start` 长时间停在「准备中」：正在下载约 240 MB 的 SenseVoice 模型，`/rt status` 会显示「下载中」；模型缓存后不会再下载。
 
 ## 架构与 Linux 扩展点
 
@@ -154,3 +178,12 @@ loopback-capture (PCM 48k stereo)
 - `src/subtitle/windows-wpf.ts` + `assets/overlay/overlay.ps1`：实现 `SubtitleRenderer` 接口即可换成 GTK/Qt/其他叠加窗；协议、控制器、命令和翻译链路不需要改。
 
 `src/index.ts` 在非 Windows 平台会明确报错，避免半可用状态。
+
+## 已验证
+
+2026-11-20 在 Windows 11 + DSH Web + `qwen-token-plan-cn / deepseek-v4.1-flash` 上完成真机验收：
+
+- 系统回环采集（`system-exclude-self`）→ SenseVoice → LLM 翻译 → WPF 字幕全链路可用。
+- 会议模式中文→英文只显示译文；影视模式英文→中文显示原文 + 译文双语。
+- 实际端到端延迟样例：分段队列 0 ms、识别 62 ms、首字 523 ms、总计约 726 ms。
+- 斜杠命令、控制条按钮与 overlay 进程常驻正常；托盘菜单和全局热键已接入，尚未逐项人工点验。

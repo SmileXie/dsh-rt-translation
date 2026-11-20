@@ -103,7 +103,11 @@ export function apply(ctx: Context, config: RtConfig): void {
     log,
   })
 
-  renderer.onAction(op => { void dispatchAction(op, controller, log) })
+  renderer.onAction(op => {
+    if (op.op === 'error') log(`overlay error: ${op.text}`)
+    else if (op.op === 'log') log(`overlay: ${op.text}`)
+    void dispatchAction(op, controller, log)
+  })
   registerCommands(ctx.commands as never, controller as never)
   registerTool(ctx.tools as never, controller as never)
 

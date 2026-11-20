@@ -390,6 +390,7 @@ function Initialize-ControlBar {
   $script:statusDot.Height = 9
   $script:statusDot.Fill = [System.Windows.Media.Brushes]::Gray
   $script:statusDot.Margin = New-Object System.Windows.Thickness 2, 0, 6, 0
+  $script:statusDot.ToolTip = "绿=识别中 / 黄=准备中 / 蓝=已暂停 / 灰=已停止`n独占全屏应用下字幕可能被遮挡，请改用窗口化全屏或提升置顶层级"
   [void]$stack.Children.Add($script:statusDot)
 
   $script:playButton = New-FlatButton '▶' 30
@@ -918,7 +919,7 @@ function Process-Line([string]$line) {
       'style' { Apply-Style $message.style; Render-Cues }
       'cue' { Upsert-Cue $message.cue }
       'state' { Apply-State $message.state }
-      'clear' { Clear-Cues; Hide-ControlBar }
+      'clear' { Clear-Cues }
       'panel' {
         if ([string]$message.visible -eq 'toggle') { Toggle-ControlBar }
         elseif ([bool]$message.visible) { Show-ControlBar $true }

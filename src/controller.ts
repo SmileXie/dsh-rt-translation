@@ -42,6 +42,8 @@ export class Controller {
   private monitor: ReturnType<typeof setInterval> | undefined
   private captureRetries = 0
   private disposed = false
+  private listeningSince = 0
+  private lastIdleCheck = 0
 
   constructor(deps: ControllerDeps) {
     this.deps = deps
@@ -51,7 +53,7 @@ export class Controller {
   async start(): Promise<void> {
     if (this.disposed) return
     if (this.phase === 'listening') return
-    if (this.phase === 'paused') { this.resumePipeline(); return }
+    if (this.phase === 'paused') { this.resumeFromPause(); return }
     this.setPhase('preparing')
     try {
       await this.deps.stt.ensureReady()
@@ -65,6 +67,8 @@ export class Controller {
       this.fail(error)
       return
     }
+    this.listeningSince = Date.now()
+    this.lastIdleCheck = Date.now()
     this.setPhase('listening')
   }
 
@@ -173,6 +177,7 @@ export class Controller {
       `识别: ${this.deps.stt.status()}`,
       `翻译: ${settings.translate.provider || '跟随默认'} / ${settings.translate.model || '自动'}`,
       `延迟: P50 ${Math.round(stats.p50)}ms / P90 ${Math.round(stats.p90)}ms (${stats.count})`,
+      ...stats.breakdown === undefined ? [] : [`分段: 队列 ${Math.round(stats.breakdown.queueWait)}ms / 识别 ${Math.round(stats.breakdown.stt)}ms / 首字 ${Math.round(stats.breakdown.firstToken)}ms`],
       `错误: ${this.error ?? '无'}`,
     ].join('\n')
   }
@@ -210,6 +215,26 @@ export class Controller {
     try { this.openCapture() } catch (error) { this.fail(error) }
   }
 
+  /** Meeting-mode idle check, exposed so tests can drive it without timers. */
+  async _checkIdleForTest(now = Date.now()): Promise<void> {
+    if (now - this.lastIdleCheck < 5000) return
+    this.lastIdleCheck = now
+    const settings = this.deps.settings()
+    if (this.phase !== 'listening' || settings.preset !== 'meeting') return
+    const threshold = settings.meeting.autoPauseAfterMs
+    const pipeline = this.pipeline
+    if (threshold <= 0 || pipeline === undefined) return
+    const last = pipeline.lastSpeechAt()
+    const baseline = last > 0 ? last : this.listeningSince
+    if (baseline <= 0 || now - baseline <= threshold) return
+    pipeline.pause()
+    this.source?.close()
+    this.source = undefined
+    this.stopMonitor()
+    this.deps.log(`meeting idle ${now - baseline}ms; paused`)
+    this.setPhase('paused')
+  }
+
   private openCapture(): void {
     this.source?.close()
     const settings = this.deps.settings()
@@ -233,7 +258,10 @@ export class Controller {
 
   private startMonitor(): void {
     this.stopMonitor()
-    const timer = setInterval(() => { void this._checkCaptureForTest() }, 500)
+    const timer = setInterval(() => {
+      void this._checkIdleForTest()
+      void this._checkCaptureForTest()
+    }, 500)
     timer.unref?.()
     this.monitor = timer
   }
@@ -243,8 +271,14 @@ export class Controller {
     this.monitor = undefined
   }
 
-  private resumePipeline(): void {
+  /** Resume from meeting idle pause; capture was closed on pause, so reopen it. */
+  private resumeFromPause(): void {
+    if (this.source === undefined) {
+      try { this.openCapture() } catch (error) { this.fail(error); return }
+    }
     this.pipeline?.resume()
+    this.listeningSince = Date.now()
+    this.lastIdleCheck = Date.now()
     this.setPhase('listening')
   }
 

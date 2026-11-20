@@ -90,12 +90,21 @@ export class WindowsWpfRenderer implements SubtitleRenderer {
     if (child === undefined) return
     try { child.stdin.write(encodeOp({ op: 'shutdown' })) } catch { /* already gone */ }
     await new Promise<void>(resolve => {
+      let settled = false
+      const finish = (): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve()
+      }
       const timer = setTimeout(() => {
         try { child.kill() } catch { /* already gone */ }
         if (this.child === child) this.child = undefined
-        resolve()
+        finish()
       }, 2000)
       timer.unref?.()
+      try { child.onExit(() => finish()) } catch { finish() }
+      if (this.child !== child) finish()
     })
   }
 

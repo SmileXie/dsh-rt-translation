@@ -10,7 +10,14 @@ import { cleanTranslation } from './translate.ts'
 import type { SubtitleModel } from './subtitle/state.ts'
 import type { SubtitleRenderer } from './subtitle/renderer.ts'
 
-export interface LatencyStats { count: number; p50: number; p90: number; last: number }
+export interface LatencyBreakdown { queueWait: number; stt: number; firstToken: number; total: number }
+export interface LatencyStats {
+  count: number
+  p50: number
+  p90: number
+  last: number
+  breakdown?: LatencyBreakdown
+}
 
 export interface PipelineDeps {
   stt: SttClient
@@ -22,7 +29,7 @@ export interface PipelineDeps {
   log: (msg: string, err?: unknown) => void
 }
 
-interface Job { kind: 'partial' | 'final'; audio: Int16Array }
+interface Job { kind: 'partial' | 'final'; audio: Int16Array; queuedAt: number }
 
 const FRAME = 320
 const MAX_QUEUED_FINALS = 3
@@ -40,7 +47,7 @@ export class Pipeline {
   private counter = 0
   private currentId: string | undefined
   private context: TranslationContext[] = []
-  private latencies: number[] = []
+  private latencies: LatencyBreakdown[] = []
   private waiters: Array<() => void> = []
   private lastSpeech = 0
 
@@ -91,13 +98,14 @@ export class Pipeline {
   }
 
   stats(): LatencyStats {
-    const values = [...this.latencies].sort((a, b) => a - b)
+    const values = this.latencies.map(sample => sample.total).sort((a, b) => a - b)
     if (values.length === 0) return { count: 0, p50: 0, p90: 0, last: 0 }
     return {
       count: values.length,
       p50: values[Math.floor(values.length * 0.5)],
       p90: values[Math.min(values.length - 1, Math.floor(values.length * 0.9))],
       last: values[values.length - 1],
+      breakdown: this.latencies[this.latencies.length - 1],
     }
   }
 
@@ -114,7 +122,7 @@ export class Pipeline {
         this.deps.log('drop stale segment')
       }
     }
-    this.queue.push({ kind: event.kind, audio: event.audio })
+    this.queue.push({ kind: event.kind, audio: event.audio, queuedAt: this.deps.now() })
     this.pump()
   }
 
@@ -141,10 +149,13 @@ export class Pipeline {
   private async handle(job: Job): Promise<void> {
     const settings = this.deps.settings()
     const started = this.deps.now()
+    const queueWait = Math.max(0, started - job.queuedAt)
     const id = job.kind === 'final' ? (this.currentId ?? this.nextId()) : (this.currentId ??= this.nextId())
     if (job.kind === 'final') this.currentId = undefined
 
     const { text } = await this.deps.stt.transcribe(pcm16ToWav(job.audio), settings.sourceLanguage, this.lifetime.signal)
+    const transcribedAt = this.deps.now()
+    const sttMs = transcribedAt - started
     const source = text.trim()
     if (source === '') return
     this.lastSpeech = this.deps.now()
@@ -160,7 +171,7 @@ export class Pipeline {
       this.deps.subtitles.upsertSource(id, source, false)
       this.deps.subtitles.finishCue(id, this.deps.now())
       this.renderLatest()
-      this.record(started)
+      this.record({ queueWait, stt: sttMs, firstToken: 0, total: this.deps.now() - job.queuedAt })
       return
     }
 
@@ -168,6 +179,7 @@ export class Pipeline {
     this.deps.subtitles.beginTranslation(id)
     this.renderLatest()
     let translated = ''
+    let firstToken = 0
     for await (const delta of this.deps.translator.translate({
       text: source,
       source: settings.sourceLanguage,
@@ -176,6 +188,7 @@ export class Pipeline {
       glossary: [...settings.translate.glossary, ...settings.media.glossary],
       signal: this.lifetime.signal,
     })) {
+      if (firstToken === 0) firstToken = this.deps.now() - transcribedAt
       translated += delta
       this.deps.subtitles.appendTranslation(id, delta)
       this.renderLatest()
@@ -191,11 +204,11 @@ export class Pipeline {
       this.context.push({ source, target: final })
       if (this.context.length > 8) this.context.shift()
     }
-    this.record(started)
+    this.record({ queueWait, stt: sttMs, firstToken, total: this.deps.now() - job.queuedAt })
   }
 
-  private record(started: number): void {
-    this.latencies.push(this.deps.now() - started)
+  private record(sample: LatencyBreakdown): void {
+    this.latencies.push(sample)
     if (this.latencies.length > MAX_LATENCIES) this.latencies.shift()
   }
 
