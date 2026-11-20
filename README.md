@@ -29,6 +29,8 @@ DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播
 
 把插件装进独立的 `rt` profile，之后用 `dsh --profile rt` 启动，不影响默认 profile。
 
+以下命令里的 `dsh` 指 DSH 启动器。如果提示找不到 `dsh`，在 DSH 仓库根目录把 `dsh` 换成 `pnpm dsh`（例如 `pnpm dsh --profile rt --dump-config`），或直接运行 `node D:\my_code\deepseek-harness\apps\cli\lib\bin.js`。
+
 ```powershell
 # 1. 创建 rt profile（--dump-config 只生成并打印，不启动）
 dsh --profile rt --from-default-profile web --dump-config
