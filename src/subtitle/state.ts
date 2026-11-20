@@ -7,9 +7,9 @@ interface StoredCue extends Cue { finishedAt?: number }
 export interface SubtitleModelOptions { maxCues: number; bilingual: boolean; holdMs: number }
 
 export class SubtitleModel {
-  private readonly maxCues: number
-  private readonly bilingual: boolean
-  private readonly holdMs: number
+  private maxCues: number
+  private bilingual: boolean
+  private holdMs: number
   private readonly cues: StoredCue[] = []
   private clock = 0
 
@@ -17,6 +17,15 @@ export class SubtitleModel {
     this.maxCues = options.maxCues
     this.bilingual = options.bilingual
     this.holdMs = options.holdMs
+  }
+
+  /** Apply settings changed from the control bar or settings panel. */
+  configure(options: Partial<SubtitleModelOptions>): void {
+    if (options.maxCues !== undefined) this.maxCues = Math.max(1, options.maxCues)
+    if (options.bilingual !== undefined) this.bilingual = options.bilingual
+    if (options.holdMs !== undefined) this.holdMs = Math.max(0, options.holdMs)
+    while (this.cues.length > this.maxCues) this.cues.shift()
+    for (const cue of this.cues) cue.holdMs = this.holdMs
   }
 
   /** Create or update the source line of a cue. */

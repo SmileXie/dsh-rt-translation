@@ -6,6 +6,7 @@ import type { Translator } from './translate.ts'
 import type { SubtitleModel } from './subtitle/state.ts'
 import type { SubtitleRenderer } from './subtitle/renderer.ts'
 import type { UiState } from './subtitle/protocol.ts'
+import { toStylePayload } from './subtitle/protocol.ts'
 
 export type Phase = 'idle' | 'preparing' | 'listening' | 'paused' | 'error'
 
@@ -26,6 +27,10 @@ export interface ControllerDeps {
 
 const LANGUAGES = new Set(['zh', 'en', 'ja', 'ko', 'yue'])
 const BACKOFF = [1000, 2000, 5000]
+const PRESET_SUBTITLE = {
+  meeting: { fontSize: 30, maxLines: 2, holdMs: 3500, bilingual: false },
+  media: { fontSize: 34, maxLines: 3, holdMs: 6000, bilingual: true },
+} as const
 
 export class Controller {
   private readonly deps: ControllerDeps
@@ -92,7 +97,18 @@ export class Controller {
   /** Switch the meeting/media preset. */
   async setMode(preset: Preset): Promise<void> {
     if (preset !== 'meeting' && preset !== 'media') throw new Error(`不支持的模式: ${preset}`)
-    await this.deps.patchSettings({ preset })
+    const subtitle = { ...this.deps.settings().subtitle, ...PRESET_SUBTITLE[preset] }
+    await this.deps.patchSettings({ preset, subtitle })
+    this.applySubtitle()
+    if (this.phase === 'listening') await this.restart()
+    else this.emit()
+  }
+
+  /** Apply a partial subtitle style change from the settings panel or hotkeys. */
+  async setSubtitle(patch: Partial<ResolvedSettings['subtitle']>): Promise<void> {
+    const subtitle = { ...this.deps.settings().subtitle, ...patch }
+    await this.deps.patchSettings({ subtitle })
+    this.applySubtitle()
     this.emit()
   }
 
@@ -120,6 +136,12 @@ export class Controller {
 
   /** Ask the overlay to show its control bar. */
   showControlBar(): void { this.deps.renderer.showPanel() }
+
+  /** Clear visible subtitles without stopping capture. */
+  clear(): void {
+    this.deps.subtitles.clear()
+    this.deps.renderer.clear()
+  }
 
   /** Translate one literal string and show it, without touching capture. */
   async test(text: string): Promise<void> {
@@ -244,6 +266,16 @@ export class Controller {
     const state = this.state()
     for (const listener of this.listeners) listener(state)
     this.deps.renderer.state(state)
+  }
+
+  private applySubtitle(): void {
+    const subtitle = this.deps.settings().subtitle
+    this.deps.subtitles.configure({
+      maxCues: Math.max(3, subtitle.maxLines),
+      bilingual: subtitle.bilingual,
+      holdMs: subtitle.holdMs,
+    })
+    this.deps.renderer.style(toStylePayload(subtitle))
   }
 }
 

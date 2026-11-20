@@ -3,7 +3,12 @@ import type { CommandTarget } from './commands.ts'
 
 export interface ToolRegistry { register(definition: unknown): () => void }
 
-/** Register `rt_translate` so the agent can start/stop subtitles on request. */
+/**
+ * Register `rt_translate` so the agent can start/stop subtitles on request.
+ * The definition is authored as a raw ToolDefinition: this plugin lives
+ * outside the harness workspace, so importing `defineTool` at runtime would
+ * not resolve from here. The registry validates `output` itself.
+ */
 export function registerTool(registry: ToolRegistry, controller: CommandTarget): void {
   registry.register({
     name: 'rt_translate',
@@ -11,11 +16,12 @@ export function registerTool(registry: ToolRegistry, controller: CommandTarget):
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['start', 'stop', 'status'] },
-        source: { type: 'string' },
-        target: { type: 'string' },
+        action: { type: 'string', enum: ['start', 'stop', 'status'], description: 'What to do with the subtitle session.' },
+        source: { type: 'string', description: 'Source language code: auto, zh, en, ja, ko, yue.' },
+        target: { type: 'string', description: 'Target language code: zh, en, ja, ko, yue.' },
       },
       required: ['action'],
+      additionalProperties: false,
     },
     output: {
       schema: { type: 'string' },

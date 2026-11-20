@@ -39,5 +39,5 @@ test('缺省 preset 为 meeting，目标语言默认 zh', () => {
 })
 
 test('非法语言在 schema 层被拒绝', () => {
-  assert.throws(() => Config({ targetLanguage: 'de' }))
+  assert.throws(() => Config({ targetLanguage: 'de' } as never))
 })

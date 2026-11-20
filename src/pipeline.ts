@@ -33,7 +33,7 @@ export class Pipeline {
   private readonly resampler = new DownmixResampler()
   private readonly segmenter: Segmenter
   private readonly lifetime = new AbortController()
-  private carry = new Int16Array(0)
+  private carry: Int16Array = new Int16Array(0)
   private queue: Job[] = []
   private running = false
   private paused = false

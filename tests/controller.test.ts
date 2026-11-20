@@ -44,3 +44,23 @@ test('stop 关闭采集并回到 idle', async () => {
   assert.equal(c.state().phase, 'idle')
 })
 
+test('setSubtitle 重建字幕配置并推送样式', async () => {
+  const d = fake()
+  d.patchSettings = (async (patch: { subtitle: typeof d.settingsValue.subtitle }) => {
+    d.settingsValue = { ...d.settingsValue, ...patch }
+  }) as never
+  const configured: unknown[] = []
+  const styles: Array<Record<string, unknown>> = []
+  const subtitles = d.subtitles as unknown as { configure(value: unknown): void }
+  subtitles.configure = value => { configured.push(value) }
+  const renderer = d.renderer as unknown as { style(value: Record<string, unknown>): void }
+  renderer.style = value => { styles.push(value) }
+
+  const c = new Controller(d as never)
+  await c.setSubtitle({ fontSize: 40, bilingual: true })
+
+  assert.equal(d.settingsValue.subtitle.fontSize, 40)
+  assert.deepEqual(configured.at(-1), { maxCues: 3, bilingual: true, holdMs: 3500 })
+  assert.equal(styles.at(-1)?.fontSize, 40)
+})
+

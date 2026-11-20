@@ -39,3 +39,13 @@ test('空译文不会产生 target 行', () => {
   m.finishCue('a')
   assert.deepEqual(m.snapshot()[0].lines.map(l => l.kind), ['source'])
 })
+
+test('configure 更新双语、上限与停留时间', () => {
+  const m = new SubtitleModel({ maxCues: 3, bilingual: false, holdMs: 1000 })
+  for (const id of ['a', 'b', 'c', 'd']) { m.upsertSource(id, id, false); m.finishCue(id, 0) }
+  m.configure({ maxCues: 2, bilingual: true, holdMs: 5000 })
+  assert.deepEqual(m.snapshot().map(c => c.id), ['c', 'd'])
+  assert.equal(m.snapshot()[0].holdMs, 5000)
+  m.upsertSource('e', '你好', false); m.beginTranslation('e')
+  assert.deepEqual(m.snapshot().at(-1)?.lines.map(l => l.kind), ['source', 'target'])
+})

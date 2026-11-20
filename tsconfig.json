@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
-    "target": "ES2023",
+    "target": "ES2024",
+    "lib": ["ES2024"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
@@ -10,14 +11,15 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
-      "@deepseek-ai/cordis": ["D:/my_code/deepseek-harness/packages/cordis/src/index.ts"],
-      "@deepseek-ai/dsh-llm": ["D:/my_code/deepseek-harness/packages/llm/llm/src/index.ts"],
-      "@deepseek-ai/dsh-llm/types": ["D:/my_code/deepseek-harness/packages/llm/llm/src/types.ts"],
-      "@deepseek-ai/dsh-experimental-speech-to-text": ["D:/my_code/deepseek-harness/packages/experimental/speech-to-text/src/index.ts"],
-      "@deepseek-ai/dsh-commands": ["D:/my_code/deepseek-harness/packages/interaction/commands/src/index.ts"],
-      "@deepseek-ai/dsh-tools": ["D:/my_code/deepseek-harness/packages/core/tools/src/index.ts"],
-      "@deepseek-ai/dsh-subprocess": ["D:/my_code/deepseek-harness/packages/subprocess/subprocess/src/index.ts"],
-      "@deepseek-ai/dsh-settings": ["D:/my_code/deepseek-harness/packages/settings/settings/src/index.ts"]
+      "@deepseek-ai/cordis": ["D:/my_code/deepseek-harness/vendor/cordis/lib/types/index.d.ts"],
+      "@deepseek-ai/cordis-plugin-loader": ["D:/my_code/deepseek-harness/vendor/loader/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-llm": ["D:/my_code/deepseek-harness/packages/llm/llm/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-llm/types": ["D:/my_code/deepseek-harness/packages/llm/llm/lib/types/types.d.ts"],
+      "@deepseek-ai/dsh-experimental-speech-to-text": ["D:/my_code/deepseek-harness/packages/experimental/speech-to-text/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-commands": ["D:/my_code/deepseek-harness/packages/interaction/commands/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-tools": ["D:/my_code/deepseek-harness/packages/core/tools/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-subprocess": ["D:/my_code/deepseek-harness/packages/subprocess/subprocess/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-settings": ["D:/my_code/deepseek-harness/packages/settings/settings/lib/types/index.d.ts"]
     }
   },
   "include": ["src", "tests"]

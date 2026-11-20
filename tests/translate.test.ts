@@ -25,11 +25,11 @@ test('cleanTranslation 去掉引号、Markdown 与前缀', () => {
 })
 
 test('route 跟随 agentDefaultModel', async () => {
-  const t = new Translator({}, { provider: '', model: '', followAgentDefault: true, agentDefaultModel: () => ({ provider: 'p', model: 'm' }) })
+  const t = new Translator({} as never, { provider: '', model: '', followAgentDefault: true, agentDefaultModel: () => ({ provider: 'p', model: 'm' }) })
   assert.deepEqual(await t.route(), { provider: 'p', model: 'm' })
 })
 
 test('显式 provider/model 优先', async () => {
-  const t = new Translator({}, { provider: 'x', model: 'y', followAgentDefault: true, agentDefaultModel: () => ({ provider: 'p', model: 'm' }) })
+  const t = new Translator({} as never, { provider: 'x', model: 'y', followAgentDefault: true, agentDefaultModel: () => ({ provider: 'p', model: 'm' }) })
   assert.deepEqual(await t.route(), { provider: 'x', model: 'y' })
 })

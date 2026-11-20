@@ -27,6 +27,8 @@ export interface TranslatorOptions {
   model: string
   followAgentDefault: boolean
   agentDefaultModel?: () => { provider: string; model: string } | undefined
+  /** Live settings read on every request so `/rt model` takes effect immediately. */
+  current?: () => { provider: string; model: string; followAgentDefault: boolean }
 }
 
 const NAMES: Record<SourceLanguage, string> = {
@@ -71,7 +73,11 @@ export class Translator {
 
   /** Resolve the provider/model used for subtitle translation. */
   async route(): Promise<{ provider: string; model: string }> {
-    const { provider, model, followAgentDefault, agentDefaultModel } = this.options
+    const live = this.options.current?.()
+    const provider = live?.provider ?? this.options.provider
+    const model = live?.model ?? this.options.model
+    const followAgentDefault = live?.followAgentDefault ?? this.options.followAgentDefault
+    const agentDefaultModel = this.options.agentDefaultModel
     if (provider !== '' && model !== '') return { provider, model }
     if (followAgentDefault) {
       const selection = agentDefaultModel?.()
