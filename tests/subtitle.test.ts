@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { SubtitleModel } from '../src/subtitle/state.ts'
+
+test('会议模式：临时原文被译文原地替换', () => {
+  const m = new SubtitleModel({ maxCues: 2, bilingual: false, holdMs: 1000 })
+  m.upsertSource('a', '你好', true)
+  assert.deepEqual(m.snapshot()[0].lines, [{ kind: 'source', text: '你好', live: true }])
+  m.beginTranslation('a')
+  assert.deepEqual(m.snapshot()[0].lines, [{ kind: 'target', text: '', live: true }])
+  m.appendTranslation('a', 'Hello')
+  assert.deepEqual(m.snapshot()[0].lines, [{ kind: 'target', text: 'Hello', live: true }])
+})
+
+test('影视模式：保留原文并追加译文', () => {
+  const m = new SubtitleModel({ maxCues: 3, bilingual: true, holdMs: 1000 })
+  m.upsertSource('a', '你好', false)
+  m.beginTranslation('a'); m.appendTranslation('a', 'Hello')
+  assert.deepEqual(m.snapshot()[0].lines.map(l => l.kind), ['source', 'target'])
+  assert.equal(m.snapshot()[0].lines[1].text, 'Hello')
+})
+
+test('最多保留 maxCues 条', () => {
+  const m = new SubtitleModel({ maxCues: 2, bilingual: false, holdMs: 10_000 })
+  for (const id of ['a', 'b', 'c']) { m.upsertSource(id, id, false); m.finishCue(id) }
+  assert.deepEqual(m.snapshot().map(c => c.id), ['b', 'c'])
+})
+
+test('hold 到期后移除', () => {
+  const m = new SubtitleModel({ maxCues: 2, bilingual: false, holdMs: 1000 })
+  m.upsertSource('a', '你好', false); m.finishCue('a')
+  m.tick(0); m.tick(999); assert.equal(m.snapshot().length, 1)
+  m.tick(1001); assert.equal(m.snapshot().length, 0)
+})
+
+test('空译文不会产生 target 行', () => {
+  const m = new SubtitleModel({ maxCues: 2, bilingual: true, holdMs: 1000 })
+  m.upsertSource('a', '你好', false); m.beginTranslation('a'); m.appendTranslation('a', '   ')
+  m.finishCue('a')
+  assert.deepEqual(m.snapshot()[0].lines.map(l => l.kind), ['source'])
+})
