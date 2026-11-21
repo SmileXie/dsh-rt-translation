@@ -9,7 +9,7 @@
       config:
         dataRoot: !!js dshHomePath('speech-to-text', 'sensevoice')
     - id: rt-translation
-      name: 'D:/my_code/dsh-rt-translation/src/index.ts'
+      name: './src/index.ts'
       config:
         sourceLanguage: auto
         targetLanguage: zh

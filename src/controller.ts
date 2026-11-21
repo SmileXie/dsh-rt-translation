@@ -85,6 +85,11 @@ export class Controller {
     this.setPhase('listening')
   }
 
+  /** Download and load the recognizer without opening audio capture. */
+  prepareModel(): void {
+    this.deps.stt.prepare()
+  }
+
   /** Stop capture and clear the screen; the overlay process stays resident. */
   async stop(): Promise<void> {
     await this.halt()

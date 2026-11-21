@@ -18,33 +18,56 @@ DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播
 | 操作系统 | Windows 11，或 Windows 10 build 20348+ | 指定应用 / 排除自身采集依赖 Windows 进程回环；v1 只支持 Windows |
 | DSH | 可正常启动的 DeepSeek Harness | 用 DSH 自带的 Node 24 CLI 即可，不需要单独安装 Node |
 | LLM 路由 | 任一可用 provider + model | 默认跟随 DSH 当前默认模型；也可 `/rt model <provider> <model>` 覆盖 |
-| 语音识别 | 无需单独安装 | bundle 已挂载 `speech-to-text` 与 SenseVoice provider；首次下载约 240 MB 模型 |
+| 语音识别 | 无需单独安装 | bundle 已挂载 `speech-to-text` 与 SenseVoice provider；可用 `/rt prepare` 提前下载约 240 MB 模型 |
 | PowerShell | Windows 自带的 Windows PowerShell 5.1 | 字幕窗是 WPF overlay；脚本必须以 UTF-8 BOM 保存 |
 | 音频设备 | 默认输出设备能正常播放 | 采集系统回环，不需要麦克风，也不依赖虚拟声卡 |
-| 网络 | 首次准备模型时需要 | 模型缓存后识别可离线；翻译仍需要 LLM 可用 |
+| 网络 | 首次 `/rt prepare` 或 `/rt start` 准备模型时需要 | 模型缓存后识别可离线；翻译仍需要 LLM 可用 |
 
 ## 安装
+
+### 准备工作
+
+- Windows 11，或 Windows 10 build 20348 以上。
+- 已安装 DeepSeek Harness，并能运行 `dsh` 命令。没有全局 `dsh` 时，可以在 DSH 仓库里使用 `pnpm dsh`。
+- DSH 中有可用的 LLM provider 与 model，供翻译调用。
+- 第一次使用前需要约 240 MB 的 SenseVoice 模型，安装后可执行 `/rt prepare` 提前下载。
 
 ### 方式一：作为 bundle 安装（推荐）
 
 把插件装进独立的 `rt` profile，之后用 `dsh --profile rt` 启动，不影响默认 profile。
 
-以下命令里的 `dsh` 指 DSH 启动器。如果提示找不到 `dsh`，在 DSH 仓库根目录把 `dsh` 换成 `pnpm dsh`（例如 `pnpm dsh --profile rt --dump-config`），或直接运行 `node D:\my_code\deepseek-harness\apps\cli\lib\bin.js`。
+1. 获取项目。克隆仓库，或从 GitHub 下载 ZIP 后解压，再进入项目根目录。
 
 ```powershell
-# 1. 创建 rt profile（--dump-config 只生成并打印，不启动）
+git clone https://github.com/SmileXie/dsh-rt-translation.git
+cd dsh-rt-translation
+```
+
+2. 创建 `rt` profile。`--dump-config` 只生成并打印配置，不启动 DSH。
+
+```powershell
 dsh --profile rt --from-default-profile web --dump-config
+```
 
-# 2. 安装插件（路径指向本仓库目录）
-dsh plugin --profile rt add D:\my_code\dsh-rt-translation
+3. 把当前目录安装为该 profile 的插件。
 
-# 3. 确认三个条目已挂载：speech-to-text、speech-to-text-sensevoice、rt-translation
+```powershell
+dsh plugin --profile rt add .
+```
+
+4. 确认 `speech-to-text`、`speech-to-text-sensevoice`、`rt-translation` 三个条目都已挂载。
+
+```powershell
 dsh --profile rt --dump-config
 ```
 
-`cordis.bundle.patch.yml` 使用包名 `dsh-rt-translation`，由 profile 内的插件目录解析。
+安装使用 `cordis.bundle.patch.yml`，其中以包名 `dsh-rt-translation` 引用插件，由 profile 内的插件目录解析。`dsh plugin add` 以链接方式引用本地仓库，安装后请保留克隆目录。移动或删除目录后，需要在新位置重新执行安装。
 
-新 profile 不会自动继承默认 profile 的模型配置。如果启动后模型选择器显示「暂无可用模型」或 `/rt status` 的「翻译」为空，把默认 profile 的 provider 条目复制到 `$DSH_HOME/profiles/rt/cordis.patch.yml`（`$DSH_HOME` 默认是 `C:\Users\<你>\.dsh`）：
+如果终端提示找不到 `dsh`，在 DSH 仓库根目录把命令里的 `dsh` 换成 `pnpm dsh`，例如 `pnpm dsh --profile rt --dump-config`。同一个目录下也可以改用仓库自带的 Node 运行时，把 `dsh` 换成 `node apps\cli\lib\bin.js`。
+
+#### 配置翻译模型
+
+新 profile 不会自动继承默认 profile 的模型配置。如果启动后模型选择器显示「暂无可用模型」，或 `/rt status` 的「翻译」为空，把默认 profile 的 provider 条目复制到 `$env:DSH_HOME\profiles\rt\cordis.patch.yml`。没有设置 `DSH_HOME` 时，该文件位于 `$env:USERPROFILE\.dsh\profiles\rt\cordis.patch.yml`。
 
 ```yaml
 - id: llm-pi-ai
@@ -63,14 +86,43 @@ dsh --profile rt --dump-config
 
 provider 名称、模型名和密钥环境变量按你自己的 DSH 配置替换。
 
-### 方式二：开发模式（直接用当前目录）
+### 方式二：开发模式（从源码加载）
+
+修改插件代码时可以直接加载本仓库，不必安装到 profile。在项目根目录执行以下命令。
 
 ```powershell
-cd D:\my_code\deepseek-harness
-pnpm dsh web --patch D:\my_code\dsh-rt-translation\cordis.patch.yml
+dsh web --patch .\cordis.patch.yml
 ```
 
-`cordis.patch.yml` 会同时挂载 `speech-to-text`、`speech-to-text-sensevoice` 和本插件。移动目录后需要同步修改里面的绝对路径。
+`cordis.patch.yml` 会同时挂载 `speech-to-text`、`speech-to-text-sensevoice` 和本插件。插件入口 `./src/index.ts` 相对该文件解析，项目目录可以放在任意位置。
+
+如果 `dsh` 不在 `PATH` 中，在 DSH 仓库根目录改用 pnpm 转发，并传入配置文件的路径。
+
+```powershell
+pnpm dsh web --patch <插件目录的绝对路径>\cordis.patch.yml
+```
+
+### 安装后预下载模型（推荐）
+
+安装完成后先启动一次 DSH。开发模式下把下面的命令换成 `dsh web --patch .\cordis.patch.yml`，之后的 `/rt prepare` 相同。
+
+```powershell
+dsh --profile rt
+```
+
+在 DSH Web 的任意会话中发送：
+
+```text
+/rt prepare
+```
+
+命令会下载并校验 SenseVoice 权重、词表和 VAD，然后加载识别器。这个过程不会开始字幕采集，也不会打开控制条。用 `/rt status` 查看进度，例如：
+
+```text
+识别: 下载中 42%（99.8 MB / 228.1 MB）
+```
+
+如果模型已经缓存，`/rt prepare` 会直接完成，不会重复下载。「识别」变成「待机」或「就绪」后，`/rt start` 会直接开始收听。模型默认保存在 `$env:USERPROFILE\.dsh\speech-to-text\sensevoice`。跳过这一步时，首次 `/rt start` 也会下载，只是开始收听需要等待下载完成。
 
 ## 启动
 
@@ -95,7 +147,7 @@ dsh --profile rt --no-open
 1. 点托盘图标，或按 `Ctrl+Alt+H`，或把鼠标移到屏幕底部中央，唤出控制条。
 2. 在控制条选择源语言与目的语言（例如 `自动 → English`）。
 3. 点 ▶，或托盘「开始翻译」，或按 `Ctrl+Alt+S`，或发送 `/rt start`。
-4. 首次会准备 SenseVoice 模型：状态点变黄，下载/加载完成后自动进入收听。
+4. 如果还没有执行过 `/rt prepare`，这里会下载 SenseVoice 模型：状态点变黄，下载/加载完成后自动进入收听。
 5. 播放视频或加入会议，字幕出现在屏幕底部。
 
 会议模式先显示临时原文，译文首个 token 到达后切为译文；影视模式保留原文 + 译文两行。
@@ -137,7 +189,7 @@ dsh --profile rt --no-open
 dsh plugin --profile rt remove dsh-rt-translation
 ```
 
-如需同时删除模型缓存，删除 `~\.dsh\speech-to-text\sensevoice`。运行期设置保存在 `~\.dsh\profiles\rt\cordis.patch.yml`。
+如需同时删除模型缓存，删除 `$env:USERPROFILE\.dsh\speech-to-text\sensevoice`。运行期设置保存在 `rt` profile 的 `cordis.patch.yml`，默认是 `$env:USERPROFILE\.dsh\profiles\rt\cordis.patch.yml`。
 
 ## 会议模式与影视模式
 
@@ -185,6 +237,7 @@ dsh plugin --profile rt remove dsh-rt-translation
 
 | 命令 | 作用 |
 | --- | --- |
+| `/rt prepare` | 预下载并加载 SenseVoice 模型，不开始字幕采集 |
 | `/rt start` / `/rt stop` | 开始 / 停止；stop 同时隐藏字幕与控制条 |
 | `/rt status` | 状态、识别器、翻译路由、P50/P90 延迟、最近错误 |
 | `/rt lang <src> <tgt>` | 设置语言，如 `/rt lang auto en` |
@@ -196,7 +249,7 @@ dsh plugin --profile rt remove dsh-rt-translation
 | `/rt test <text>` | 不采音频，直接翻译并上屏 |
 | `/rt title <name>` / `/rt title off` | 加载 / 清除影视术语表 |
 
-模型也可以直接调用工具 `rt_translate`（`action=start|stop|status`，可选 `source`、`target`）。
+模型也可以直接调用工具 `rt_translate`（`action=prepare|start|stop|status`，可选 `source`、`target`）。
 
 ## 术语表
 
@@ -254,7 +307,7 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
 - 没有译文：`/rt status` 看「翻译」路由；没有默认模型时用 `/rt model <provider> <model>`。
 - 没有声音：确认播放设备是默认输出；指定应用模式确认进程名（如 `chrome.exe`）。
 - 模型选择器显示「暂无可用模型」：当前 profile 缺少 LLM provider 配置，按「作为 bundle 安装」一节的 YAML 补到 profile 的 `cordis.patch.yml` 后重启。
-- 首次 `/rt start` 长时间停在「准备中」：正在下载约 240 MB 的 SenseVoice 模型，`/rt status` 会显示「下载中」；模型缓存后不会再下载。
+- 首次 `/rt start` 长时间停在「准备中」：正在下载约 240 MB 的 SenseVoice 模型。安装后先执行 `/rt prepare` 可以避免这段等待，`/rt status` 会显示下载百分比；模型缓存后不会再下载。
 
 ## 架构与 Linux 扩展点
 

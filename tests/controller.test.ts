@@ -13,7 +13,7 @@ function fake(over: { prepareFails?: boolean } = {}) {
     settingsValue: resolveConfig({}),
     patchSettings: async () => {},
     settings: () => d.settingsValue,
-    stt: { async ensureReady() { order.push('prepare'); if (over.prepareFails) throw new Error('boom') }, async transcribe() { return { text: 'x', audioSeconds: 1, inferenceSeconds: 0 } }, status: () => '' },
+    stt: { prepare() {}, async ensureReady() { order.push('prepare'); if (over.prepareFails) throw new Error('boom') }, async transcribe() { return { text: 'x', audioSeconds: 1, inferenceSeconds: 0 } }, status: () => '' },
     translator: { async *translate() {}, async route() { return { provider: 'p', model: 'm' } } },
     renderer: { start: async () => {}, cue() {}, state() {}, style() {}, ui() {}, clear() {}, showPanel() {}, hidePanel() { d.hidden++ }, onAction() {}, dispose: async () => {} },
     subtitles: { upsertSource() {}, beginTranslation() {}, appendTranslation() {}, finishCue() {}, clear() {}, configure() {}, tick() {}, snapshot: () => [] },
@@ -29,6 +29,17 @@ test('start 先准备模型再打开采集', async () => {
   await c.start()
   assert.deepEqual(d.order, ['prepare', 'open'])
   assert.equal(c.state().phase, 'listening')
+})
+
+test('prepareModel 只准备识别器，不打开采集', () => {
+  const d = fake()
+  let prepared = 0
+  d.stt.prepare = () => { prepared++ }
+  const c = new Controller(d as never)
+  c.prepareModel()
+  assert.equal(prepared, 1)
+  assert.equal(d.opened, 0)
+  assert.equal(c.state().phase, 'idle')
 })
 
 test('prepare 失败进入 error 且不打开采集', async () => {

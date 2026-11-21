@@ -18,6 +18,24 @@ function fake(phases: string[], opts: { neverReady?: boolean } = {}) {
   return Object.assign(api, { calls })
 }
 
+test('prepare 启动模型准备但不等待就绪', () => {
+  const api = fake(['unprepared'])
+  new SenseVoiceClient(api, 'p').prepare()
+  assert.deepEqual(api.calls, ['prepare:p'])
+})
+
+test('status 显示下载百分比与字节数', () => {
+  const api = {
+    prepare() {},
+    snapshot: () => ({ providers: [{ id: 'p', preparation: {
+      phase: 'downloading', completedBytes: 50 * 1024 * 1024, totalBytes: 100 * 1024 * 1024,
+    } }] }),
+    resolve: () => undefined,
+    transcribe: async () => ({ text: '', audioSeconds: 0, inferenceSeconds: 0 }),
+  }
+  assert.equal(new SenseVoiceClient(api as never, 'p').status(), '下载中 50%（50.0 MB / 100.0 MB）')
+})
+
 test('ensureReady 在 provider 就绪后 resolve', async () => {
   const api = fake(['downloading', 'ready'])
   await new SenseVoiceClient(api, 'p', { pollMs: 1 }).ensureReady()

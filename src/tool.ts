@@ -12,11 +12,11 @@ export interface ToolRegistry { register(definition: unknown): () => void }
 export function registerTool(registry: ToolRegistry, controller: CommandTarget): void {
   registry.register({
     name: 'rt_translate',
-    description: 'Control the realtime speech translation subtitles. action=start|stop|status; optional source/target language codes (auto, zh, en, ja, ko, yue).',
+    description: 'Control the realtime speech translation subtitles. action=prepare|start|stop|status; optional source/target language codes (auto, zh, en, ja, ko, yue).',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['start', 'stop', 'status'], description: 'What to do with the subtitle session.' },
+        action: { type: 'string', enum: ['prepare', 'start', 'stop', 'status'], description: 'Prepare the speech model, start or stop subtitles, or read status.' },
         source: { type: 'string', description: 'Source language code: auto, zh, en, ja, ko, yue.' },
         target: { type: 'string', description: 'Target language code: zh, en, ja, ko, yue.' },
       },
@@ -32,6 +32,7 @@ export function registerTool(registry: ToolRegistry, controller: CommandTarget):
       if (record.source !== undefined && record.target !== undefined) {
         await controller.setLanguages(record.source as never, record.target as never)
       }
+      if (record.action === 'prepare') { controller.prepareModel(); return '已开始准备语音模型，可用 status 查看进度' }
       if (record.action === 'start') { await controller.start(); return '字幕已开始' }
       if (record.action === 'stop') { await controller.stop(); return '字幕已停止' }
       return controller.status()

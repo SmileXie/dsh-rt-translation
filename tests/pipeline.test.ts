@@ -21,7 +21,7 @@ function deps(over: Record<string, unknown> = {}) {
   const settings = (over.settings as ReturnType<typeof resolveConfig>) ?? resolveConfig({ sourceLanguage: 'auto', targetLanguage: 'en', preset: 'meeting' })
   const subs = new SubtitleModel({ maxCues: 3, bilingual: settings.subtitle.bilingual, holdMs: settings.subtitle.holdMs })
   const d = {
-    stt: { calls: 0, maxOutstanding: 0, async ensureReady() {}, async transcribe() { d.stt.calls++; return { text: (over.transcript as string) ?? '你好', audioSeconds: 1, inferenceSeconds: 0.1 } }, status: () => '' },
+    stt: { calls: 0, maxOutstanding: 0, prepare() {}, async ensureReady() {}, async transcribe() { d.stt.calls++; return { text: (over.transcript as string) ?? '你好', audioSeconds: 1, inferenceSeconds: 0.1 } }, status: () => '' },
     translator: { calls: 0, async *translate() { d.translator.calls++; yield 'Hello' }, async route() { return { provider: 'p', model: 'm' } } },
     subtitles: subs,
     renderer: { last: undefined as unknown, start: async () => {}, cue(c: unknown) { d.renderer.last = c }, state() {}, style() {}, clear() {}, onAction() {}, dispose: async () => {} },

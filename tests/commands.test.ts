@@ -12,6 +12,7 @@ function fakeController() {
   return {
     calls,
     start: async () => { calls.push('start') },
+    prepareModel: () => { calls.push('prepare') },
     stop: async () => { calls.push('stop') },
     restart: async () => { calls.push('restart') },
     setLanguages: async (s: string, t: string) => { calls.push(`lang:${s}:${t}`) },
@@ -27,6 +28,14 @@ test('/rt start 调用 controller.start', async () => {
   const out = await r.defs.get('rt')!.handler({ rawInput: ' start' })
   assert.equal(out.kind, 'success')
   assert.deepEqual(c.calls, ['start'])
+})
+
+test('/rt prepare 启动模型预下载', async () => {
+  const r = registry(); const c = fakeController()
+  registerCommands(r as never, c as never)
+  const out = await r.defs.get('rt')!.handler({ rawInput: ' prepare' })
+  assert.equal(out.kind, 'success')
+  assert.deepEqual(c.calls, ['prepare'])
 })
 
 test('/rt lang zh en 设置语言', async () => {
