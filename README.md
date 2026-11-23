@@ -17,6 +17,7 @@ DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播
 | --- | --- | --- |
 | 操作系统 | Windows 11，或 Windows 10 build 20348+ | 指定应用 / 排除自身采集依赖 Windows 进程回环；v1 只支持 Windows |
 | DSH | 可正常启动的 DeepSeek Harness | 用 DSH 自带的 Node 24 CLI 即可，不需要单独安装 Node |
+| 插件依赖 | 仓库根目录执行一次 `npm install` | 提供 `@deepseek-ai/schemastery` 与 `loopback-capture`；链接安装不会自动安装它们，缺了插件会加载失败、`/rt` 不出现 |
 | LLM 路由 | 任一可用 provider + model | 默认跟随 DSH 当前默认模型；也可 `/rt model <provider> <model>` 覆盖 |
 | 语音识别 | 无需单独安装 | bundle 已挂载 `speech-to-text` 与 SenseVoice provider；可用 `/rt prepare` 提前下载约 240 MB 模型 |
 | PowerShell | Windows 自带的 Windows PowerShell 5.1 | 字幕窗是 WPF overlay；脚本必须以 UTF-8 BOM 保存 |
@@ -36,27 +37,21 @@ DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播
 
 Desktop 的「插件」页会直接管理 Desktop 自己的 `desktop` profile，安装后不需要再运行 `dsh --profile rt`，也不需要另外启动 Web 版。以下步骤以 Windows 为例。
 
-1. 获取项目，并记下仓库根目录的绝对路径。
+1. 获取项目，并记下仓库根目录的绝对路径，安装插件自身的依赖。
 
 ```powershell
 git clone https://github.com/SmileXie/dsh-rt-translation.git
+cd dsh-rt-translation
+npm install
 ```
-
-也可以从 GitHub 下载 ZIP 后解压。例如仓库位于 `D:\my_code\dsh-rt-translation`，安装时应填写这个目录，而不是其中的 `src` 子目录。
 
 2. 打开 DeepSeek Harness Desktop 并进入工作区，在左侧边栏选择「插件」。
 
-3. 点击「添加插件」。也可以点击按钮旁的箭头，选择「选择添加插件方式」→「安装第三方插件」。
-
-4. 在「包名或地址」中填写仓库根目录的绝对路径，然后点击「安装」。
-
-```text
-D:\my_code\dsh-rt-translation
-```
+3. 点击「添加插件」。在「包名或地址」中选择仓库根目录的绝对路径，然后点击「安装」。
 
 安装完成后点击「立即启用」。如果页面提示需要重启，请完全退出 DeepSeek Harness（不只是关闭窗口）后再重新打开，让插件由 Desktop profile 重新加载。
 
-5. 回到「插件」页确认已出现 `dsh-rt-translation`，并且包含 `speech-to-text`、`speech-to-text-sensevoice`、`rt-translation` 三个条目。
+4. 回到「插件」页确认已出现 `dsh-rt-translation`，并且包含 `speech-to-text`、`speech-to-text-sensevoice`、`rt-translation` 三个条目。
 
 Desktop 安装会沿用当前 Desktop profile 已配置的 LLM，不需要复制 CLI `rt` profile 的模型配置。若翻译路由仍未准备好，请先在 Desktop 的模型设置中配置一个可用模型。
 
@@ -73,19 +68,25 @@ git clone https://github.com/SmileXie/dsh-rt-translation.git
 cd dsh-rt-translation
 ```
 
-2. 创建 `rt` profile。`--dump-config` 只生成并打印配置，不启动 DSH。
+2. 安装插件自身的依赖。链接安装不会安装仓库的 `dependencies`，跳过这一步插件会加载失败，`/rt` 不会出现。
+
+```powershell
+npm install
+```
+
+3. 创建 `rt` profile。`--dump-config` 只生成并打印配置，不启动 DSH。
 
 ```powershell
 dsh --profile rt --from-default-profile web --dump-config
 ```
 
-3. 把当前目录安装为该 profile 的插件。
+4. 把当前目录安装为该 profile 的插件。
 
 ```powershell
 dsh plugin --profile rt add .
 ```
 
-4. 确认 `speech-to-text`、`speech-to-text-sensevoice`、`rt-translation` 三个条目都已挂载。
+5. 确认 `speech-to-text`、`speech-to-text-sensevoice`、`rt-translation` 三个条目都已挂载。
 
 ```powershell
 dsh --profile rt --dump-config
@@ -118,7 +119,7 @@ provider 名称、模型名和密钥环境变量按你自己的 DSH 配置替换
 
 ### 方式三：开发模式（从源码加载）
 
-修改插件代码时可以直接加载本仓库，不必安装到 profile。在项目根目录执行以下命令。
+修改插件代码时可以直接加载本仓库，不必安装到 profile。同样需要先在仓库根目录执行一次 `npm install`，否则入口加载时会因为找不到 `@deepseek-ai/schemastery` 而失败，`/rt` 也不会出现。然后在项目根目录执行以下命令。
 
 ```powershell
 dsh web --patch .\cordis.patch.yml
@@ -137,12 +138,8 @@ pnpm dsh web --patch <插件目录的绝对路径>\cordis.patch.yml
 安装完成后先启动一次 DSH：
 
 - Desktop 安装：从托盘完全退出后重新打开 DeepSeek Harness Desktop。
-- CLI bundle 安装：运行下面的命令。
+- CLI bundle 安装：运行下面的命令。`dsh --profile rt`
 - 开发模式：把下面的命令换成 `dsh web --patch .\cordis.patch.yml`。
-
-```powershell
-dsh --profile rt
-```
 
 在 DeepSeek Harness Desktop 或 DSH Web 的任意会话中发送：
 
@@ -337,6 +334,7 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
 
 常见问题：
 
+- 输入框里没有 `/rt`、或发了命令没有反应：插件入口没有加载成功，不是命令没注册。先确认仓库根目录执行过 `npm install`，且 `node_modules\@deepseek-ai\schemastery`、`node_modules\loopback-capture` 都存在；再在 Desktop「插件」页把 `dsh-rt-translation` 停用后重新启用（或完全退出 DSH 后重开），让入口重新加载。恢复后托盘和 overlay 进程也会一起出现。
 - 看不到托盘：先跑上面的 `-SelfTest`；若自检正常，检查 DSH 启动日志里是否有 `[rt-translation] overlay start failed`。
 - 没有译文：`/rt status` 看「翻译」路由；没有默认模型时用 `/rt model <provider> <model>`。
 - 没有声音：确认播放设备是默认输出；指定应用模式确认进程名（如 `chrome.exe`）。
