@@ -28,11 +28,41 @@ DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播
 ### 准备工作
 
 - Windows 11，或 Windows 10 build 20348 以上。
-- 已安装 DeepSeek Harness，并能运行 `dsh` 命令。没有全局 `dsh` 时，可以在 DSH 仓库里使用 `pnpm dsh`。
+- 已安装 DeepSeek Harness Desktop（推荐），或已安装带 `dsh` 命令的 DSH CLI／源码仓库。没有全局 `dsh` 时，可以在 DSH 仓库里使用 `pnpm dsh`。
 - DSH 中有可用的 LLM provider 与 model，供翻译调用。
 - 第一次使用前需要约 240 MB 的 SenseVoice 模型，安装后可执行 `/rt prepare` 提前下载。
 
-### 方式一：作为 bundle 安装（推荐）
+### 方式一：在 DeepSeek Harness Desktop 中安装（推荐桌面用户）
+
+Desktop 的「插件」页会直接管理 Desktop 自己的 `desktop` profile，安装后不需要再运行 `dsh --profile rt`，也不需要另外启动 Web 版。以下步骤以 Windows 为例。
+
+1. 获取项目，并记下仓库根目录的绝对路径。
+
+```powershell
+git clone https://github.com/SmileXie/dsh-rt-translation.git
+```
+
+也可以从 GitHub 下载 ZIP 后解压。例如仓库位于 `D:\my_code\dsh-rt-translation`，安装时应填写这个目录，而不是其中的 `src` 子目录。
+
+2. 打开 DeepSeek Harness Desktop 并进入工作区，在左侧边栏选择「插件」。
+
+3. 点击「添加插件」。也可以点击按钮旁的箭头，选择「选择添加插件方式」→「安装第三方插件」。
+
+4. 在「包名或地址」中填写仓库根目录的绝对路径，然后点击「安装」。
+
+```text
+D:\my_code\dsh-rt-translation
+```
+
+安装完成后点击「立即启用」。如果页面提示需要重启，请完全退出 DeepSeek Harness（不只是关闭窗口）后再重新打开，让插件由 Desktop profile 重新加载。
+
+5. 回到「插件」页确认已出现 `dsh-rt-translation`，并且包含 `speech-to-text`、`speech-to-text-sensevoice`、`rt-translation` 三个条目。
+
+Desktop 安装会沿用当前 Desktop profile 已配置的 LLM，不需要复制 CLI `rt` profile 的模型配置。若翻译路由仍未准备好，请先在 Desktop 的模型设置中配置一个可用模型。
+
+本地目录会以链接方式安装，克隆目录需要保留。如果移动或删除了目录，请先在「插件」页卸载插件，再从新路径重新安装。
+
+### 方式二：通过 CLI 作为 bundle 安装
 
 把插件装进独立的 `rt` profile，之后用 `dsh --profile rt` 启动，不影响默认 profile。
 
@@ -86,7 +116,7 @@ dsh --profile rt --dump-config
 
 provider 名称、模型名和密钥环境变量按你自己的 DSH 配置替换。
 
-### 方式二：开发模式（从源码加载）
+### 方式三：开发模式（从源码加载）
 
 修改插件代码时可以直接加载本仓库，不必安装到 profile。在项目根目录执行以下命令。
 
@@ -104,13 +134,17 @@ pnpm dsh web --patch <插件目录的绝对路径>\cordis.patch.yml
 
 ### 安装后预下载模型（推荐）
 
-安装完成后先启动一次 DSH。开发模式下把下面的命令换成 `dsh web --patch .\cordis.patch.yml`，之后的 `/rt prepare` 相同。
+安装完成后先启动一次 DSH：
+
+- Desktop 安装：从托盘完全退出后重新打开 DeepSeek Harness Desktop。
+- CLI bundle 安装：运行下面的命令。
+- 开发模式：把下面的命令换成 `dsh web --patch .\cordis.patch.yml`。
 
 ```powershell
 dsh --profile rt
 ```
 
-在 DSH Web 的任意会话中发送：
+在 DeepSeek Harness Desktop 或 DSH Web 的任意会话中发送：
 
 ```text
 /rt prepare
