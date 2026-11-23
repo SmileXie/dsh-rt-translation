@@ -31,7 +31,7 @@ function makeSpawn() {
   return { spawn, children }
 }
 
-const style = { fontSize: 32, maxLines: 3, position: 'bottom' as const, marginPercent: 8, widthPercent: 78, opacity: 0.72, background: true, bilingual: true, display: 'primary' as const, fontFamily: '' }
+const style = { fontSize: 32, maxLines: 3, position: 'bottom' as const, marginPercent: 8, widthPercent: 78, opacity: 0.72, background: true, bilingual: true, display: 'primary' as const, fontFamily: '', minReadMs: 1800 }
 
 test('start 写出 style 并在 ready 后 resolve', async () => {
   const fake = makeSpawn()

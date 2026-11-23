@@ -21,6 +21,7 @@ import { Pipeline } from './pipeline.ts'
 import { registerCommands } from './commands.ts'
 import { registerTool } from './tool.ts'
 import { dispatchAction } from './ui.ts'
+import { createPanelHandler, PANEL_CHANNEL } from './panel.ts'
 
 export { Config } from './config.ts'
 export const name = 'rt-translation'
@@ -125,11 +126,42 @@ export function apply(ctx: Context, config: Volatile<RtConfig>): void {
   registerCommands(ctx.commands as never, controller as never)
   registerTool(ctx.tools as never, controller as never)
 
+  // The control bar lives in the DSH window; the browser half reaches it through
+  // an authenticated Connection RPC channel registered here.
+  const panel = createPanelHandler({
+    controller,
+    settings: () => settings,
+    sttStatus: () => stt.status(),
+    persistence: () => persisted,
+    log,
+  })
+  type PanelRpc = { handle(channel: string, handler: typeof panel): () => Promise<void> }
+  type PanelContext = { connection?: { rpc: PanelRpc } }
+  const injectable = ctx as unknown as {
+    inject(deps: string[], callback: (child: PanelContext) => void): void
+  }
+  try {
+    injectable.inject(['connection', 'webServer'], child => {
+      const connection = child.connection
+      if (connection === undefined) {
+        log('control panel bridge unavailable: connection service is missing')
+        return
+      }
+      try {
+        connection.rpc.handle(PANEL_CHANNEL, panel)
+        log(`control panel bridge ready at ${PANEL_CHANNEL}`)
+      } catch (error) {
+        log('control panel bridge failed', error)
+      }
+    })
+  } catch (error) {
+    log('control panel bridge unavailable', error)
+  }
+
   ctx.effect(() => {
     void renderer.start().then(() => {
       renderer.style(toStylePayload(settings.subtitle))
       renderer.ui(toUiConfig(settings))
-      renderer.state(controller.state())
       log('overlay ready')
     }).catch(error => log('overlay start failed', error))
     return async () => { await controller.dispose() }

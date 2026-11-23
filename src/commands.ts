@@ -27,12 +27,11 @@ export interface CommandTarget {
   setCapture(mode: 'system' | 'system-exclude-self' | 'app', appName: string): Promise<void>
   setModel(provider: string, model: string): Promise<void>
   setGlossary(entries: string[]): Promise<void>
-  showControlBar(): void
   test(text: string): Promise<void>
   status(): string
 }
 
-const USAGE = '用法: /rt start|prepare|stop|status|lang <src> <tgt>|mode meeting|media|app <name>|model <provider> <model>|restart|ui|test <text>|title <name>|title off'
+const USAGE = '用法: /rt start|prepare|stop|status|lang <src> <tgt>|mode meeting|media|app <name>|model <provider> <model>|restart|test <text>|title <name>|title off'
 const SOURCES = new Set(['auto', 'zh', 'en', 'ja', 'ko', 'yue'])
 const TARGETS = new Set(['zh', 'en', 'ja', 'ko', 'yue'])
 
@@ -70,7 +69,6 @@ export function registerCommands(registry: CommandRegistry, controller: CommandT
         case 'stop': await controller.stop(); return ok('字幕已停止')
         case 'restart': await controller.restart(); return ok('已重新连接音频')
         case 'status': return ok(controller.status())
-        case 'ui': controller.showControlBar(); return ok('控制条已切换')
         case 'lang': {
           const source = parts[1]
           const target = parts[2]
@@ -121,7 +119,7 @@ export function registerCommands(registry: CommandRegistry, controller: CommandT
     }
   }
 
-  registry.register({ name: 'rt', description: '实时语音翻译字幕控制', input: { hint: '<start|prepare|stop|status|lang|mode|app|model|restart|ui|test|title>' }, handler: ({ rawInput }) => run(rawInput) })
+  registry.register({ name: 'rt', description: '实时语音翻译字幕控制', input: { hint: '<start|prepare|stop|status|lang|mode|app|model|restart|test|title>' }, handler: ({ rawInput }) => run(rawInput) })
   registry.register({ name: 'rt-start', description: '开始实时语音翻译字幕', handler: async () => { await controller.start(); return ok('字幕已开始') } })
   registry.register({ name: 'rt-stop', description: '停止实时语音翻译字幕', handler: async () => { await controller.stop(); return ok('字幕已停止') } })
 }

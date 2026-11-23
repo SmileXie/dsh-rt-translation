@@ -23,16 +23,13 @@ test('未知 op 被忽略', () => {
   assert.equal(decodeOverlayLine('{"op":"nope"}'), undefined)
 })
 
-test('toUiConfig 投影托盘、控制条与热键设置', () => {
+test('toUiConfig 投影托盘与热键设置', () => {
   const config = resolveConfig({
-    ui: { tray: false, controlBar: false, controlBarHotkey: 'Ctrl+Shift+U', showStatusDot: false },
+    ui: { tray: false },
     hotkeys: { enabled: false },
   })
   assert.deepEqual(toUiConfig(config), {
     tray: false,
-    controlBar: false,
-    controlBarHotkey: 'Ctrl+Shift+U',
-    showStatusDot: false,
     hotkeysEnabled: false,
   })
 })

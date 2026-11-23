@@ -26,5 +26,11 @@ test('loadGlossary 读取 from/to 并转成术语行', async () => {
 test('resolveDshHome 优先 DSH_HOME，空值时回退到 ~/.dsh', () => {
   assert.equal(resolveDshHome('/custom/dsh', '/home/u'), '/custom/dsh')
   assert.equal(resolveDshHome('  ', '/home/u'), join('/home/u', '.dsh'))
-  assert.equal(resolveDshHome(undefined, '/home/u'), join('/home/u', '.dsh'))
+  const saved = process.env.DSH_HOME
+  delete process.env.DSH_HOME
+  try {
+    assert.equal(resolveDshHome(undefined, '/home/u'), join('/home/u', '.dsh'))
+  } finally {
+    if (saved !== undefined) process.env.DSH_HOME = saved
+  }
 })

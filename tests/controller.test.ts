@@ -9,13 +9,12 @@ function fake(over: { prepareFails?: boolean } = {}) {
     order,
     opened: 0,
     closed: 0,
-    hidden: 0,
     settingsValue: resolveConfig({}),
     patchSettings: async () => {},
     settings: () => d.settingsValue,
     stt: { prepare() {}, async ensureReady() { order.push('prepare'); if (over.prepareFails) throw new Error('boom') }, async transcribe() { return { text: 'x', audioSeconds: 1, inferenceSeconds: 0 } }, status: () => '' },
     translator: { async *translate() {}, async route() { return { provider: 'p', model: 'm' } } },
-    renderer: { start: async () => {}, cue() {}, state() {}, style() {}, ui() {}, clear() {}, showPanel() {}, hidePanel() { d.hidden++ }, onAction() {}, dispose: async () => {} },
+    renderer: { start: async () => {}, cue() {}, style() {}, ui() {}, clear() {}, onAction() {}, dispose: async () => {} },
     subtitles: { upsertSource() {}, beginTranslation() {}, appendTranslation() {}, finishCue() {}, clear() {}, configure() {}, tick() {}, snapshot: () => [] },
     capture: { open() { d.opened++; order.push('open'); return { close() { d.closed++ }, lastError: null as string | null } } },
     makePipeline: () => ({ feed() {}, pause() {}, resume() {}, flush: async () => {}, stop: async () => {}, stats: () => ({ count: 0, p50: 0, p90: 0, last: 0 }), lastSpeechAt: () => 0 }),
@@ -71,7 +70,6 @@ test('stop 关闭采集并回到 idle', async () => {
   await c.start(); await c.stop()
   assert.equal(d.closed, 1)
   assert.equal(c.state().phase, 'idle')
-  assert.equal(d.hidden, 1)
 })
 
 test('setSubtitle 重建字幕配置并推送样式', async () => {
@@ -90,7 +88,7 @@ test('setSubtitle 重建字幕配置并推送样式', async () => {
   await c.setSubtitle({ fontSize: 40, bilingual: true })
 
   assert.equal(d.settingsValue.subtitle.fontSize, 40)
-  assert.deepEqual(configured.at(-1), { maxCues: 3, bilingual: true, holdMs: 3500 })
+  assert.deepEqual(configured.at(-1), { maxCues: 3, bilingual: true, holdMs: 6000 })
   assert.equal(styles.at(-1)?.fontSize, 40)
 })
 

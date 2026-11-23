@@ -3,9 +3,9 @@ import type { ResolvedSettings } from '../config.ts'
 import type { Cue } from './state.ts'
 
 export type ActionName =
-  | 'toggle' | 'start' | 'stop' | 'clear' | 'restart'
+  | 'toggle' | 'start' | 'stop' | 'prepare' | 'clear' | 'restart'
   | 'setSource' | 'setTarget' | 'setMode' | 'setFontSize' | 'setSubtitle'
-  | 'setApp' | 'showPanel' | 'quit'
+  | 'setApp' | 'quit'
 
 export interface UiState {
   running: boolean
@@ -27,14 +27,13 @@ export interface StylePayload {
   bilingual: boolean
   display: 'primary' | 'all'
   fontFamily: string
+  /** Minimum time a finished translation stays on screen before a newer cue may replace it. */
+  minReadMs: number
 }
 
 /** Overlay chrome options from `ui.*` and `hotkeys.*`. */
 export interface UiConfigPayload {
   tray: boolean
-  controlBar: boolean
-  controlBarHotkey: string
-  showStatusDot: boolean
   hotkeysEnabled: boolean
 }
 
@@ -42,8 +41,6 @@ export type HostOp =
   | { op: 'style'; style: StylePayload }
   | { op: 'ui'; ui: UiConfigPayload }
   | { op: 'cue'; cue: Cue }
-  | { op: 'state'; state: UiState }
-  | { op: 'panel'; visible: boolean | 'toggle' }
   | { op: 'clear' }
   | { op: 'shutdown' }
 
@@ -54,9 +51,15 @@ export type OverlayOp =
   | { op: 'log'; text: string }
 
 const ACTIONS = new Set<string>([
-  'toggle', 'start', 'stop', 'clear', 'restart',
+  'toggle', 'start', 'stop', 'prepare', 'clear', 'restart',
   'setSource', 'setTarget', 'setMode', 'setFontSize', 'setSubtitle',
-  'setApp', 'showPanel', 'quit',
+  'setApp', 'quit',
+])
+
+/** Actions the in-window control panel may send; `quit` stays overlay-only. */
+export const PANEL_ACTIONS: ReadonlySet<ActionName> = new Set([
+  'toggle', 'start', 'stop', 'prepare', 'clear', 'restart',
+  'setSource', 'setTarget', 'setMode', 'setFontSize', 'setSubtitle', 'setApp',
 ])
 
 /** Serialize one host instruction as a single NDJSON line. */
@@ -101,6 +104,7 @@ export function toStylePayload(subtitle: ResolvedSettings['subtitle']): StylePay
     bilingual: subtitle.bilingual,
     display: subtitle.display,
     fontFamily: subtitle.fontFamily,
+    minReadMs: subtitle.minReadMs,
   }
 }
 
@@ -108,9 +112,6 @@ export function toStylePayload(subtitle: ResolvedSettings['subtitle']): StylePay
 export function toUiConfig(settings: ResolvedSettings): UiConfigPayload {
   return {
     tray: settings.ui.tray,
-    controlBar: settings.ui.controlBar,
-    controlBarHotkey: settings.ui.controlBarHotkey,
-    showStatusDot: settings.ui.showStatusDot,
     hotkeysEnabled: settings.hotkeys.enabled,
   }
 }

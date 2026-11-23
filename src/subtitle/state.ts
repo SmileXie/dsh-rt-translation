@@ -1,6 +1,12 @@
 /** Cue bookkeeping for the subtitle overlay; pure state, no rendering. */
 export interface CueLine { kind: 'source' | 'target'; text: string; live: boolean }
-export interface Cue { id: string; lines: CueLine[]; holdMs: number }
+export interface Cue {
+  id: string
+  lines: CueLine[]
+  holdMs: number
+  /** True once no more text will arrive: the overlay may preempt it after the reading window. */
+  finished: boolean
+}
 
 interface StoredCue extends Cue { finishedAt?: number }
 
@@ -96,6 +102,7 @@ export class SubtitleModel {
     return this.cues.map(cue => ({
       id: cue.id,
       holdMs: cue.holdMs,
+      finished: cue.finishedAt !== undefined,
       lines: cue.lines
         .filter(line => cue.finishedAt === undefined || line.text.trim() !== '')
         .map(line => ({ ...line })),

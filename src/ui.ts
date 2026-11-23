@@ -29,6 +29,8 @@ export function parseSubtitlePatch(value: unknown): Partial<ResolvedSettings['su
   if (record.position === 'top' || record.position === 'bottom') patch.position = record.position
   if (record.display === 'primary' || record.display === 'all') patch.display = record.display
   if (typeof record.fontFamily === 'string' && record.fontFamily.trim() !== '') patch.fontFamily = record.fontFamily.trim()
+  if (typeof record.holdMs === 'number' && Number.isFinite(record.holdMs)) patch.holdMs = Math.round(clamp(record.holdMs, 500, 60_000))
+  if (typeof record.minReadMs === 'number' && Number.isFinite(record.minReadMs)) patch.minReadMs = Math.round(clamp(record.minReadMs, 0, 30_000))
   return Object.keys(patch).length > 0 ? patch : undefined
 }
 
@@ -48,6 +50,7 @@ export async function dispatchAction(
         return
       }
       case 'start': await controller.start(); return
+      case 'prepare': controller.prepareModel(); return
       case 'stop': await controller.stop(); return
       case 'restart': await controller.restart(); return
       case 'clear': controller.clear(); return
@@ -82,7 +85,6 @@ export async function dispatchAction(
           else await controller.setCapture('app', op.value.trim())
         }
         return
-      case 'showPanel': controller.showControlBar(); return
       case 'quit': await controller.dispose(); return
     }
   } catch (error) {

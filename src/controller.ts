@@ -32,10 +32,10 @@ export interface ControllerDeps {
 const LANGUAGES = new Set(['zh', 'en', 'ja', 'ko', 'yue'])
 const BACKOFF = [1000, 2000, 5000]
 const PRESET_SUBTITLE = {
-  meeting: { fontSize: 30, maxLines: 2, holdMs: 3500, bilingual: false },
-  media: { fontSize: 34, maxLines: 3, holdMs: 6000, bilingual: true },
+  meeting: { fontSize: 30, maxLines: 2, holdMs: 6000, minReadMs: 1800, bilingual: true },
+  media: { fontSize: 34, maxLines: 3, holdMs: 6000, minReadMs: 1200, bilingual: true },
 } as const
-const PRESET_STYLE_KEYS = ['fontSize', 'maxLines', 'holdMs', 'bilingual'] as const
+const PRESET_STYLE_KEYS = ['fontSize', 'maxLines', 'holdMs', 'minReadMs', 'bilingual'] as const
 
 export class Controller {
   private readonly deps: ControllerDeps
@@ -93,7 +93,6 @@ export class Controller {
   /** Stop capture and clear the screen; the overlay process stays resident. */
   async stop(): Promise<void> {
     await this.halt()
-    this.deps.renderer.hidePanel()
   }
 
   async restart(): Promise<void> {
@@ -172,9 +171,6 @@ export class Controller {
     await this.deps.patchSettings({ translate: { ...settings.translate, glossary: entries } })
     this.emit()
   }
-
-  /** Ask the overlay to show its control bar. */
-  showControlBar(): void { this.deps.renderer.showPanel() }
 
   /** Clear visible subtitles without stopping capture. */
   clear(): void {
@@ -358,7 +354,6 @@ export class Controller {
   private emit(): void {
     const state = this.state()
     for (const listener of this.listeners) listener(state)
-    this.deps.renderer.state(state)
   }
 
   private applySubtitle(): void {

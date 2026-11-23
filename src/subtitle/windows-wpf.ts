@@ -1,7 +1,7 @@
 /** Resident PowerShell/WPF overlay process driven by NDJSON over stdio. */
 import { spawn as nodeSpawn } from 'node:child_process'
 import { decodeOverlayLine, encodeOp } from './protocol.ts'
-import type { HostOp, OverlayOp, StylePayload, UiConfigPayload, UiState } from './protocol.ts'
+import type { HostOp, OverlayOp, StylePayload, UiConfigPayload } from './protocol.ts'
 import type { SubtitleRenderer } from './renderer.ts'
 import type { Cue } from './state.ts'
 
@@ -71,8 +71,6 @@ export class WindowsWpfRenderer implements SubtitleRenderer {
 
   cue(cue: Cue): void { this.write({ op: 'cue', cue }) }
 
-  state(state: UiState): void { this.write({ op: 'state', state }) }
-
   style(style: StylePayload): void {
     this.stylePayload = style
     this.write({ op: 'style', style })
@@ -84,11 +82,6 @@ export class WindowsWpfRenderer implements SubtitleRenderer {
   }
 
   clear(): void { this.write({ op: 'clear' }) }
-
-  /** Ask the overlay to flip the control bar; it owns the visibility bit. */
-  showPanel(): void { this.write({ op: 'panel', visible: 'toggle' }) }
-
-  hidePanel(): void { this.write({ op: 'panel', visible: false }) }
 
   onAction(cb: (op: OverlayOp) => void): void { this.listeners.add(cb) }
 

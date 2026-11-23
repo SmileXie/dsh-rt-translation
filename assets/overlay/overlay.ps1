@@ -1,4 +1,4 @@
-﻿param([switch]$SelfTest, [switch]$SelfTestMeeting, [string]$ConfigBase64 = '')
+﻿param([switch]$SelfTest, [switch]$SelfTestMeeting, [switch]$SelfTestHold, [string]$ConfigBase64 = '')
 
 $ErrorActionPreference = 'Stop'
 
@@ -32,13 +32,6 @@ public static class RtNative
     {
         int ex = GetWindowLong(hwnd, -20);
         ex |= 0x20 | 0x08000000 | 0x00000080;
-        SetWindowLong(hwnd, -20, ex);
-    }
-
-    public static void MakeToolWindow(IntPtr hwnd)
-    {
-        int ex = GetWindowLong(hwnd, -20);
-        ex |= 0x00000080;
         SetWindowLong(hwnd, -20, ex);
     }
 
@@ -126,6 +119,7 @@ $script:style = [pscustomobject]@{
   bilingual = $true
   display = 'primary'
   fontFamily = 'Microsoft YaHei UI'
+  minReadMs = 1800
 }
 
 $script:cues = New-Object System.Collections.ArrayList
@@ -133,16 +127,13 @@ $script:seq = 0
 $script:syncing = $true
 $script:shuttingDown = $false
 $script:hwndSub = [IntPtr]::Zero
-$script:hwndBar = [IntPtr]::Zero
-$script:barStickyUntil = [DateTime]::MinValue
-$script:awaySince = $null
+$script:displayedId = ''
+$script:nowOverride = $null
+$script:selfTestStatus = 0
 $script:hotkeys = @{}
 $script:pendingSubtitle = @{}
 $script:ui = [pscustomobject]@{
   tray = $true
-  controlBar = $true
-  controlBarHotkey = 'Ctrl+Alt+H'
-  showStatusDot = $true
   hotkeysEnabled = $true
 }
 
@@ -199,11 +190,11 @@ function Update-StyleVisuals {
   } else {
     $script:subBorder.Background = [System.Windows.Media.Brushes]::Transparent
   }
-  if ($null -ne $script:settingsFontLabel) { $script:settingsFontLabel.Text = ('字号 ' + [string][int]$script:style.fontSize) }
-  if ($null -ne $script:settingsLinesLabel) { $script:settingsLinesLabel.Text = ('行数 ' + [string][int]$script:style.maxLines) }
-  if ($null -ne $script:settingsOpacityLabel) { $script:settingsOpacityLabel.Text = ('背景透明度 ' + [string][math]::Round([double]$script:style.opacity, 2)) }
-  if ($null -ne $script:settingsWidthLabel) { $script:settingsWidthLabel.Text = ('字幕宽度 ' + [string][math]::Round([double]$script:style.widthPercent) + '%') }
-  if ($null -ne $script:settingsMarginLabel) { $script:settingsMarginLabel.Text = ('底边距 ' + [string][math]::Round([double]$script:style.marginPercent) + '%') }
+}
+
+function Get-Now {
+  if ($null -ne $script:nowOverride) { return [DateTime]$script:nowOverride }
+  return [DateTime]::UtcNow
 }
 
 function Apply-Style($incoming) {
@@ -220,6 +211,7 @@ function Apply-Style($incoming) {
       'bilingual' { $script:style.bilingual = [bool]$property.Value }
       'display' { if ($property.Value -eq 'primary' -or $property.Value -eq 'all') { $script:style.display = [string]$property.Value } }
       'fontFamily' { if ([string]$property.Value -ne '') { $script:style.fontFamily = [string]$property.Value } }
+      'minReadMs' { $script:style.minReadMs = [int](Clamp-Number $property.Value 0 30000 1800) }
     }
   }
   Update-StyleVisuals
@@ -269,11 +261,70 @@ function Position-SubtitleWindow {
   $script:subWindow.Top = $top
 }
 
+function Test-CueTarget($cue) {
+  foreach ($line in @($cue.lines)) {
+    if ($line.kind -eq 'target' -and ([string]$line.text).Trim() -ne '') { return $true }
+  }
+  return $false
+}
+
+# Choose the one cue `display = primary` renders. A translation (or any settled
+# line) owns the screen until it has been readable for minReadMs and stopped
+# streaming, so the next sentence's original can never cut a translation short.
+function Select-DisplayedCue {
+  if ($script:cues.Count -eq 0) { return $null }
+  $now = Get-Now
+  $latest = $script:cues[$script:cues.Count - 1]
+  $displayed = $null
+  foreach ($cue in $script:cues) { if ($cue.id -eq $script:displayedId) { $displayed = $cue; break } }
+  if ($null -eq $displayed) {
+    $latest.shownAt = $now
+    $script:displayedId = $latest.id
+    return $latest
+  }
+
+  if ($null -eq $displayed.readAt) {
+    # Source-only partial: follow the newest line while the segment is recognized.
+    if ($displayed.id -ne $latest.id) {
+      $latest.shownAt = $now
+      $script:displayedId = $latest.id
+      return $latest
+    }
+    $displayed.shownAt = $now
+    return $displayed
+  }
+
+  $readMs = ($now - $displayed.readAt).TotalMilliseconds
+  # Only a finished cue may be replaced: cutting a streaming translation leaves half a sentence.
+  $settled = $displayed.finished
+  if ($readMs -ge [int]$script:style.minReadMs -and $settled) {
+    $newer = $null
+    for ($i = $script:cues.Count - 1; $i -ge 0; $i--) {
+      $candidate = $script:cues[$i]
+      if ($candidate.seq -le $displayed.seq) { break }
+      if ($null -ne $candidate.readAt) { $newer = $candidate; break }
+    }
+    if ($null -ne $newer) {
+      $newer.shownAt = $now
+      $script:displayedId = $newer.id
+      return $newer
+    }
+  }
+
+  if (($now - $displayed.at).TotalMilliseconds -gt [math]::Max(250, [int]$displayed.holdMs)) {
+    $latest.shownAt = $now
+    $script:displayedId = $latest.id
+    return $latest
+  }
+  return $displayed
+}
+
 function Render-Cues {
   $script:subPanel.Children.Clear()
   $visible = @($script:cues | Sort-Object seq)
   if ($script:style.display -eq 'primary') {
-    $visible = @($visible | Select-Object -Last 1)
+    $chosen = Select-DisplayedCue
+    $visible = if ($null -eq $chosen) { @() } else { @($chosen) }
   } elseif ($visible.Count -gt [int]$script:style.maxLines) {
     $visible = @($visible | Select-Object -Last ([int]$script:style.maxLines))
   }
@@ -296,7 +347,7 @@ function Render-Cues {
       $block.TextWrapping = [System.Windows.TextWrapping]::Wrap
       $block.TextAlignment = [System.Windows.TextAlignment]::Center
       $block.FontFamily = New-Object System.Windows.Media.FontFamily ($script:style.fontFamily)
-      if ($line.kind -eq 'source' -and $script:style.bilingual) {
+      if ($line.kind -eq 'source' -and $script:style.bilingual -and $hasTarget) {
         $block.FontSize = [math]::Max(10, [double]$script:style.fontSize * 0.62)
         $block.Foreground = New-SolidBrush 255 214 214 218
         $block.Opacity = 0.78
@@ -320,7 +371,6 @@ function Render-Cues {
 
   if ($rendered -eq 0) { Hide-Subtitles } else { Show-Subtitles }
   Position-SubtitleWindow
-  Position-ControlBar
 }
 
 function Show-Subtitles {
@@ -337,352 +387,59 @@ function Clear-Cues {
   Render-Cues
 }
 
-function Upsert-Cue($cue) {
-  if ($null -eq $cue -or [string]$cue.id -eq '') { return }
+function Store-Cue($cue) {
+  if ($null -eq $cue -or [string]$cue.id -eq '') { return $false }
+  $now = Get-Now
+  $lines = @($cue.lines)
+  $hasTarget = $false
+  foreach ($line in $lines) {
+    if ($line.kind -eq 'target' -and ([string]$line.text).Trim() -ne '') { $hasTarget = $true; break }
+  }
+  $finished = [bool]$cue.finished
   $existing = $null
   foreach ($item in $script:cues) { if ($item.id -eq [string]$cue.id) { $existing = $item; break } }
   if ($null -ne $existing) {
-    $existing.lines = @($cue.lines)
+    $existing.lines = $lines
     $existing.holdMs = [int]$cue.holdMs
-    $existing.at = [DateTime]::UtcNow
+    $existing.at = $now
+    $existing.finished = $finished
+    if ($null -eq $existing.readAt -and ($hasTarget -or $finished)) { $existing.readAt = $now }
   } else {
     $script:seq++
     $entry = [pscustomobject]@{
       id = [string]$cue.id
-      lines = @($cue.lines)
+      lines = $lines
       holdMs = [int]$cue.holdMs
-      at = [DateTime]::UtcNow
+      at = $now
       seq = $script:seq
+      finished = $finished
+      readAt = $(if ($hasTarget -or $finished) { $now } else { $null })
+      shownAt = $null
     }
     [void]$script:cues.Add($entry)
   }
   while ($script:cues.Count -gt 12) { $script:cues.RemoveAt(0) }
-  Render-Cues
+  return $true
+}
+
+function Upsert-Cue($cue) {
+  if (Store-Cue $cue) { Render-Cues }
 }
 
 function Expire-Cues {
-  $now = [DateTime]::UtcNow
+  $now = Get-Now
   $removed = $false
   for ($index = $script:cues.Count - 1; $index -ge 0; $index--) {
     $cue = $script:cues[$index]
-    if (($now - $cue.at).TotalMilliseconds -gt [math]::Max(250, $cue.holdMs)) {
+    $last = $cue.at
+    if ($null -ne $cue.shownAt -and $cue.shownAt -gt $last) { $last = $cue.shownAt }
+    if (($now - $last).TotalMilliseconds -gt [math]::Max(250, [int]$cue.holdMs)) {
+      if ($cue.id -eq $script:displayedId) { $script:displayedId = '' }
       $script:cues.RemoveAt($index)
       $removed = $true
     }
   }
   if ($removed) { Render-Cues }
-}
-
-function Initialize-ControlBar {
-  $script:bar = New-Object System.Windows.Window
-  $script:bar.WindowStyle = [System.Windows.WindowStyle]::None
-  $script:bar.AllowsTransparency = $true
-  $script:bar.Background = [System.Windows.Media.Brushes]::Transparent
-  $script:bar.ShowInTaskbar = $false
-  $script:bar.Topmost = $true
-  $script:bar.ResizeMode = [System.Windows.ResizeMode]::NoResize
-  $script:bar.SizeToContent = [System.Windows.SizeToContent]::Manual
-  $script:bar.Width = 420
-  $script:bar.Height = 44
-  $script:bar.WindowStartupLocation = [System.Windows.WindowStartupLocation]::Manual
-  $script:bar.ShowActivated = $false
-
-  $border = New-Object System.Windows.Controls.Border
-  $border.CornerRadius = New-Object System.Windows.CornerRadius 12
-  $border.Background = New-SolidBrush 238 26 26 30
-  $border.Padding = New-Object System.Windows.Thickness 8, 5, 8, 5
-
-  $stack = New-Object System.Windows.Controls.StackPanel
-  $stack.Orientation = [System.Windows.Controls.Orientation]::Horizontal
-  $stack.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-
-  $script:statusDot = New-Object System.Windows.Shapes.Ellipse
-  $script:statusDot.Width = 9
-  $script:statusDot.Height = 9
-  $script:statusDot.Fill = [System.Windows.Media.Brushes]::Gray
-  $script:statusDot.Margin = New-Object System.Windows.Thickness 2, 0, 6, 0
-  $script:statusDot.ToolTip = "绿=识别中 / 黄=准备中 / 蓝=已暂停 / 灰=已停止`n独占全屏应用下字幕可能被遮挡，请改用窗口化全屏或提升置顶层级"
-  [void]$stack.Children.Add($script:statusDot)
-
-  $script:playButton = New-FlatButton '▶' 30
-  $script:playButton.ToolTip = '开始 / 停止'
-  $script:playButton.add_Click({
-    if ($script:stateRunning -or $script:statePhase -eq 'listening' -or $script:statePhase -eq 'preparing') {
-      Send-Action 'stop'
-    } else {
-      Send-Action 'start'
-    }
-  })
-  [void]$stack.Children.Add($script:playButton)
-
-  $script:sourceCombo = New-Object System.Windows.Controls.ComboBox
-  $script:sourceCombo.Width = 82
-  $script:sourceCombo.Height = 24
-  $script:sourceCombo.FontSize = 12
-  $script:sourceCombo.Margin = New-Object System.Windows.Thickness 3, 0, 2, 0
-  foreach ($pair in @(@('自动', 'auto'), @('中文', 'zh'), @('English', 'en'), @('日本語', 'ja'), @('한국어', 'ko'), @('粤语', 'yue'))) {
-    $item = New-Object System.Windows.Controls.ComboBoxItem
-    $item.Content = $pair[0]
-    $item.Tag = $pair[1]
-    [void]$script:sourceCombo.Items.Add($item)
-  }
-  $script:sourceCombo.SelectedIndex = 0
-  $script:sourceCombo.add_SelectionChanged({
-    if ($script:syncing) { return }
-    $item = $script:sourceCombo.SelectedItem
-    if ($null -ne $item) { Send-Action 'setSource' ([string]$item.Tag) }
-  })
-  [void]$stack.Children.Add($script:sourceCombo)
-
-  $arrow = New-Object System.Windows.Controls.TextBlock
-  $arrow.Text = '→'
-  $arrow.Foreground = [System.Windows.Media.Brushes]::Gainsboro
-  $arrow.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-  $arrow.Margin = New-Object System.Windows.Thickness 1, 0, 1, 0
-  [void]$stack.Children.Add($arrow)
-
-  $script:targetCombo = New-Object System.Windows.Controls.ComboBox
-  $script:targetCombo.Width = 82
-  $script:targetCombo.Height = 24
-  $script:targetCombo.FontSize = 12
-  $script:targetCombo.Margin = New-Object System.Windows.Thickness 2, 0, 6, 0
-  foreach ($pair in @(@('中文', 'zh'), @('English', 'en'), @('日本語', 'ja'), @('한국어', 'ko'), @('粤语', 'yue'))) {
-    $item = New-Object System.Windows.Controls.ComboBoxItem
-    $item.Content = $pair[0]
-    $item.Tag = $pair[1]
-    [void]$script:targetCombo.Items.Add($item)
-  }
-  $script:targetCombo.SelectedIndex = 0
-  $script:targetCombo.add_SelectionChanged({
-    if ($script:syncing) { return }
-    $item = $script:targetCombo.SelectedItem
-    if ($null -ne $item) { Send-Action 'setTarget' ([string]$item.Tag) }
-  })
-  [void]$stack.Children.Add($script:targetCombo)
-
-  $script:meetingButton = New-FlatButton '会议' 44
-  $script:meetingButton.add_Click({ Send-Action 'setMode' 'meeting' })
-  [void]$stack.Children.Add($script:meetingButton)
-
-  $script:mediaButton = New-FlatButton '影视' 44
-  $script:mediaButton.add_Click({ Send-Action 'setMode' 'media' })
-  [void]$stack.Children.Add($script:mediaButton)
-
-  $script:settingsButton = New-FlatButton '⋯' 32
-  $script:settingsButton.ToolTip = '设置'
-  $script:settingsButton.add_Click({ Toggle-Settings })
-  [void]$stack.Children.Add($script:settingsButton)
-
-  $border.Child = $stack
-  $script:bar.Content = $border
-}
-
-function Position-ControlBar {
-  if ($null -eq $script:bar) { return }
-  $area = [System.Windows.SystemParameters]::WorkArea
-  $width = $script:bar.Width
-  $height = $script:bar.Height
-  $left = $area.Left + ($area.Width - $width) / 2
-  $bottom = $area.Bottom - 48
-  if ($script:subWindow.IsVisible) {
-    $bottom = $script:subWindow.Top - 10
-  }
-  $top = $bottom - $height
-  if ($top -lt $area.Top + 8) { $top = $area.Top + 8 }
-  $script:bar.Left = $left
-  $script:bar.Top = $top
-}
-
-function Show-ControlBar([bool]$activate = $false) {
-  Position-ControlBar
-  if (-not $script:bar.IsVisible) { $script:bar.Show() }
-  if ($script:hwndBar -ne [IntPtr]::Zero) { [RtNative]::KeepTopmost($script:hwndBar) }
-  if ($activate) { [void]$script:bar.Activate() }
-  $script:barStickyUntil = [DateTime]::UtcNow.AddSeconds(8)
-  $script:awaySince = $null
-}
-
-function Hide-ControlBar {
-  if ($script:bar.IsVisible) { $script:bar.Hide() }
-  Hide-Settings
-  $script:awaySince = $null
-}
-
-function Toggle-ControlBar {
-  if ($script:bar.IsVisible) { Hide-ControlBar } else { Show-ControlBar $true }
-}
-
-function Initialize-SettingsWindow {
-  $script:settings = New-Object System.Windows.Window
-  $script:settings.Title = '字幕设置'
-  $script:settings.Width = 300
-  $script:settings.Height = 440
-  $script:settings.Topmost = $true
-  $script:settings.ShowInTaskbar = $false
-  $script:settings.ResizeMode = [System.Windows.ResizeMode]::NoResize
-  $script:settings.WindowStartupLocation = [System.Windows.WindowStartupLocation]::CenterScreen
-  $script:settings.Background = New-SolidBrush 255 32 32 36
-
-  $panel = New-Object System.Windows.Controls.StackPanel
-  $panel.Margin = New-Object System.Windows.Thickness 14
-
-  $script:settingsFontLabel = New-Object System.Windows.Controls.TextBlock
-  $script:settingsFontLabel.Text = ('字号 ' + [string][int]$script:style.fontSize)
-  $script:settingsFontLabel.Foreground = [System.Windows.Media.Brushes]::White
-  $script:settingsFontLabel.Margin = New-Object System.Windows.Thickness 0, 8, 0, 3
-  [void]$panel.Children.Add($script:settingsFontLabel)
-
-  $fontSlider = New-Object System.Windows.Controls.Slider
-  $fontSlider.Minimum = 12
-  $fontSlider.Maximum = 96
-  $fontSlider.Value = [double]$script:style.fontSize
-  $fontSlider.IsSnapToTickEnabled = $true
-  $fontSlider.TickFrequency = 1
-  $fontSlider.add_ValueChanged({
-    if ($script:syncing) { return }
-    $script:style.fontSize = [int]$fontSlider.Value
-    $script:settingsFontLabel.Text = ('字号 ' + [string][int]$script:style.fontSize)
-    Render-Cues
-    Queue-Subtitle @{ fontSize = [int]$script:style.fontSize }
-  })
-  [void]$panel.Children.Add($fontSlider)
-
-  $script:settingsLinesLabel = New-Object System.Windows.Controls.TextBlock
-  $script:settingsLinesLabel.Text = ('行数 ' + [string][int]$script:style.maxLines)
-  $script:settingsLinesLabel.Foreground = [System.Windows.Media.Brushes]::White
-  $script:settingsLinesLabel.Margin = New-Object System.Windows.Thickness 0, 8, 0, 3
-  [void]$panel.Children.Add($script:settingsLinesLabel)
-
-  $linesSlider = New-Object System.Windows.Controls.Slider
-  $linesSlider.Minimum = 1
-  $linesSlider.Maximum = 6
-  $linesSlider.Value = [double]$script:style.maxLines
-  $linesSlider.IsSnapToTickEnabled = $true
-  $linesSlider.TickFrequency = 1
-  $linesSlider.add_ValueChanged({
-    if ($script:syncing) { return }
-    $script:style.maxLines = [int]$linesSlider.Value
-    $script:settingsLinesLabel.Text = ('行数 ' + [string][int]$script:style.maxLines)
-    Render-Cues
-    Queue-Subtitle @{ maxLines = [int]$script:style.maxLines }
-  })
-  [void]$panel.Children.Add($linesSlider)
-
-  $positionLabel = New-Object System.Windows.Controls.TextBlock
-  $positionLabel.Text = '位置'
-  $positionLabel.Foreground = [System.Windows.Media.Brushes]::White
-  $positionLabel.Margin = New-Object System.Windows.Thickness 0, 8, 0, 3
-  [void]$panel.Children.Add($positionLabel)
-
-  $script:positionCombo = New-Object System.Windows.Controls.ComboBox
-  $script:positionCombo.Height = 24
-  foreach ($pair in @(@('底部', 'bottom'), @('顶部', 'top'))) {
-    $item = New-Object System.Windows.Controls.ComboBoxItem
-    $item.Content = $pair[0]
-    $item.Tag = $pair[1]
-    [void]$script:positionCombo.Items.Add($item)
-  }
-  $script:positionCombo.SelectedIndex = 0
-  $script:positionCombo.add_SelectionChanged({
-    if ($script:syncing) { return }
-    $item = $script:positionCombo.SelectedItem
-    if ($null -ne $item) {
-      $script:style.position = [string]$item.Tag
-      Render-Cues
-      Queue-Subtitle @{ position = [string]$item.Tag }
-    }
-  })
-  [void]$panel.Children.Add($script:positionCombo)
-
-  $script:bilingualCheck = New-Object System.Windows.Controls.CheckBox
-  $script:bilingualCheck.Content = '显示原文（双语）'
-  $script:bilingualCheck.Foreground = [System.Windows.Media.Brushes]::White
-  $script:bilingualCheck.Margin = New-Object System.Windows.Thickness 0, 12, 0, 0
-  $script:bilingualCheck.IsChecked = [bool]$script:style.bilingual
-  $script:bilingualCheck.add_Click({
-    if ($script:syncing) { return }
-    $script:style.bilingual = [bool]$script:bilingualCheck.IsChecked
-    Render-Cues
-    Queue-Subtitle @{ bilingual = [bool]$script:style.bilingual }
-  })
-  [void]$panel.Children.Add($script:bilingualCheck)
-
-  $script:settingsOpacityLabel = New-Object System.Windows.Controls.TextBlock
-  $script:settingsOpacityLabel.Text = ('背景透明度 ' + [string][math]::Round([double]$script:style.opacity, 2))
-  $script:settingsOpacityLabel.Foreground = [System.Windows.Media.Brushes]::White
-  $script:settingsOpacityLabel.Margin = New-Object System.Windows.Thickness 0, 8, 0, 3
-  [void]$panel.Children.Add($script:settingsOpacityLabel)
-
-  $opacitySlider = New-Object System.Windows.Controls.Slider
-  $opacitySlider.Minimum = 0.1
-  $opacitySlider.Maximum = 1
-  $opacitySlider.Value = [double]$script:style.opacity
-  $opacitySlider.add_ValueChanged({
-    if ($script:syncing) { return }
-    $script:style.opacity = [double]$opacitySlider.Value
-    $script:settingsOpacityLabel.Text = ('背景透明度 ' + [string][math]::Round([double]$script:style.opacity, 2))
-    Update-StyleVisuals
-    Queue-Subtitle @{ opacity = [math]::Round([double]$script:style.opacity, 2) }
-  })
-  [void]$panel.Children.Add($opacitySlider)
-
-  $script:settingsWidthLabel = New-Object System.Windows.Controls.TextBlock
-  $script:settingsWidthLabel.Text = ('字幕宽度 ' + [string][math]::Round([double]$script:style.widthPercent) + '%')
-  $script:settingsWidthLabel.Foreground = [System.Windows.Media.Brushes]::White
-  $script:settingsWidthLabel.Margin = New-Object System.Windows.Thickness 0, 8, 0, 3
-  [void]$panel.Children.Add($script:settingsWidthLabel)
-
-  $widthSlider = New-Object System.Windows.Controls.Slider
-  $widthSlider.Minimum = 30
-  $widthSlider.Maximum = 100
-  $widthSlider.Value = [double]$script:style.widthPercent
-  $widthSlider.add_ValueChanged({
-    if ($script:syncing) { return }
-    $script:style.widthPercent = [double]$widthSlider.Value
-    $script:settingsWidthLabel.Text = ('字幕宽度 ' + [string][math]::Round([double]$script:style.widthPercent) + '%')
-    Position-SubtitleWindow
-    Queue-Subtitle @{ widthPercent = [math]::Round([double]$script:style.widthPercent) }
-  })
-  [void]$panel.Children.Add($widthSlider)
-
-  $script:settingsMarginLabel = New-Object System.Windows.Controls.TextBlock
-  $script:settingsMarginLabel.Text = ('底边距 ' + [string][math]::Round([double]$script:style.marginPercent) + '%')
-  $script:settingsMarginLabel.Foreground = [System.Windows.Media.Brushes]::White
-  $script:settingsMarginLabel.Margin = New-Object System.Windows.Thickness 0, 8, 0, 3
-  [void]$panel.Children.Add($script:settingsMarginLabel)
-
-  $marginSlider = New-Object System.Windows.Controls.Slider
-  $marginSlider.Minimum = 0
-  $marginSlider.Maximum = 30
-  $marginSlider.Value = [double]$script:style.marginPercent
-  $marginSlider.add_ValueChanged({
-    if ($script:syncing) { return }
-    $script:style.marginPercent = [double]$marginSlider.Value
-    $script:settingsMarginLabel.Text = ('底边距 ' + [string][math]::Round([double]$script:style.marginPercent) + '%')
-    Position-SubtitleWindow
-    Queue-Subtitle @{ marginPercent = [math]::Round([double]$script:style.marginPercent) }
-  })
-  [void]$panel.Children.Add($marginSlider)
-
-  $script:settings.Content = $panel
-  $script:settings.add_Closing({ param($sender, $args) $args.Cancel = $true; Hide-Settings })
-}
-
-function Show-Settings {
-  $script:syncing = $true
-  if ($script:style.position -eq 'top') { $script:positionCombo.SelectedIndex = 1 } else { $script:positionCombo.SelectedIndex = 0 }
-  $script:bilingualCheck.IsChecked = [bool]$script:style.bilingual
-  $script:syncing = $false
-  $script:settings.Show()
-  [void]$script:settings.Activate()
-}
-
-function Hide-Settings {
-  if ($null -ne $script:settings -and $script:settings.IsVisible) { $script:settings.Hide() }
-}
-
-function Toggle-Settings {
-  if ($script:settings.IsVisible) { Hide-Settings } else { Show-Settings }
 }
 
 function Queue-Subtitle($patchTable) {
@@ -706,7 +463,7 @@ function Initialize-Tray {
   $script:notify.Visible = $true
   $script:notify.add_MouseClick({
     param($sender, $eventArgs)
-    if ($eventArgs.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Toggle-ControlBar }
+    if ($eventArgs.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Send-Action 'toggle' }
   })
 
   $menu = New-Object System.Windows.Forms.ContextMenuStrip
@@ -869,21 +626,6 @@ function Register-Hotkey([int]$id, [int]$modifiers, [int]$vk, [string]$name) {
   }
 }
 
-function Register-PanelHotkey {
-  if ($null -eq $script:hotkeyHost) { return }
-  if ($script:hotkeys.ContainsKey(3)) {
-    try { $script:hotkeyHost.Unregister(3) } catch { }
-    $script:hotkeys.Remove(3)
-  }
-  if ([string]::IsNullOrWhiteSpace([string]$script:ui.controlBarHotkey)) { return }
-  $definition = Convert-Hotkey ([string]$script:ui.controlBarHotkey)
-  if (-not $definition.ok) {
-    Send-Log ('无法解析控制条热键: ' + [string]$script:ui.controlBarHotkey)
-    return
-  }
-  Register-Hotkey 3 ([int]$definition.modifiers) ([int]$definition.vk) 'panel'
-}
-
 function Register-Hotkeys {
   if ($null -eq $script:hotkeyHost -or -not $script:ui.hotkeysEnabled) { return }
   $modifiers = 0x0001 -bor 0x0002
@@ -896,7 +638,6 @@ function Register-Hotkeys {
   )) {
     Register-Hotkey ([int]$definition.id) $modifiers ([int]$definition.vk) ([string]$definition.name)
   }
-  Register-PanelHotkey
 }
 
 function Unregister-Hotkeys {
@@ -921,9 +662,6 @@ function Apply-Ui($incoming) {
   foreach ($property in $incoming.PSObject.Properties) {
     switch ($property.Name) {
       'tray' { $script:ui.tray = [bool]$property.Value }
-      'controlBar' { $script:ui.controlBar = [bool]$property.Value }
-      'controlBarHotkey' { $script:ui.controlBarHotkey = [string]$property.Value }
-      'showStatusDot' { $script:ui.showStatusDot = [bool]$property.Value }
       'hotkeysEnabled' { $script:ui.hotkeysEnabled = [bool]$property.Value }
     }
   }
@@ -933,11 +671,6 @@ function Apply-Ui($incoming) {
     try { $script:notify.Visible = $false; $script:notify.Dispose() } catch { }
     $script:notify = $null
   }
-  if ($null -ne $script:statusDot) {
-    if ($script:ui.showStatusDot) { $script:statusDot.Visibility = [System.Windows.Visibility]::Visible }
-    else { $script:statusDot.Visibility = [System.Windows.Visibility]::Collapsed }
-  }
-  if (-not $script:ui.controlBar) { Hide-ControlBar }
   if ($script:ui.hotkeysEnabled) { Register-Hotkeys } else { Unregister-Hotkeys }
 }
 
@@ -946,62 +679,12 @@ function Handle-Hotkey([int]$id) {
   switch ($name) {
     'toggle' { Send-Action 'toggle' }
     'clear' { Send-Action 'clear' }
-    'panel' { Send-Action 'showPanel' }
     'fontUp' { Send-Action 'setFontSize' ([int]$script:style.fontSize + 2) }
     'fontDown' { Send-Action 'setFontSize' ([int]$script:style.fontSize - 2) }
     'bilingual' {
       $script:style.bilingual = -not [bool]$script:style.bilingual
       Render-Cues
       Queue-Subtitle @{ bilingual = [bool]$script:style.bilingual }
-    }
-  }
-}
-
-function Apply-State($state) {
-  if ($null -eq $state) { return }
-  $script:stateRunning = [bool]$state.running
-  $script:statePhase = [string]$state.phase
-  if ($null -ne $script:playButton) {
-    if ($script:stateRunning -or $script:statePhase -eq 'listening' -or $script:statePhase -eq 'preparing') {
-      $script:playButton.Content = '⏸'
-    } else {
-      $script:playButton.Content = '▶'
-    }
-  }
-  if ($null -ne $script:statusDot) {
-    switch ($script:statePhase) {
-      'listening' { $script:statusDot.Fill = [System.Windows.Media.Brushes]::LimeGreen }
-      'preparing' { $script:statusDot.Fill = [System.Windows.Media.Brushes]::Gold }
-      'paused' { $script:statusDot.Fill = [System.Windows.Media.Brushes]::DodgerBlue }
-      'error' { $script:statusDot.Fill = [System.Windows.Media.Brushes]::Red }
-      default { $script:statusDot.Fill = [System.Windows.Media.Brushes]::Gray }
-    }
-  }
-
-  $script:syncing = $true
-  if ($null -ne $script:sourceCombo) {
-    $index = 0
-    for ($i = 0; $i -lt $script:sourceCombo.Items.Count; $i++) {
-      if ([string]$script:sourceCombo.Items[$i].Tag -eq [string]$state.source) { $index = $i }
-    }
-    $script:sourceCombo.SelectedIndex = $index
-  }
-  if ($null -ne $script:targetCombo) {
-    $index = 0
-    for ($i = 0; $i -lt $script:targetCombo.Items.Count; $i++) {
-      if ([string]$script:targetCombo.Items[$i].Tag -eq [string]$state.target) { $index = $i }
-    }
-    $script:targetCombo.SelectedIndex = $index
-  }
-  $script:syncing = $false
-
-  if ($null -ne $script:meetingButton -and $null -ne $script:mediaButton) {
-    if ([string]$state.preset -eq 'media') {
-      $script:meetingButton.Background = [System.Windows.Media.Brushes]::Transparent
-      $script:mediaButton.Background = New-SolidBrush 255 58 110 165
-    } else {
-      $script:mediaButton.Background = [System.Windows.Media.Brushes]::Transparent
-      $script:meetingButton.Background = New-SolidBrush 255 58 110 165
     }
   }
 }
@@ -1019,13 +702,7 @@ function Process-Line([string]$line) {
       'style' { Apply-Style $message.style; Render-Cues }
       'ui' { Apply-Ui $message.ui }
       'cue' { Upsert-Cue $message.cue }
-      'state' { Apply-State $message.state }
       'clear' { Clear-Cues }
-      'panel' {
-        if ([string]$message.visible -eq 'toggle') { Toggle-ControlBar }
-        elseif ([bool]$message.visible) { Show-ControlBar $true }
-        else { Hide-ControlBar }
-      }
       'shutdown' { Shutdown-Overlay }
     }
   } catch {
@@ -1046,33 +723,10 @@ function Shutdown-Overlay {
   if ($null -ne $script:notify) {
     try { $script:notify.Visible = $false; $script:notify.Dispose() } catch { }
   }
-  foreach ($window in @($script:subWindow, $script:bar, $script:settings)) {
-    try { if ($null -ne $window) { $window.Close() } } catch { }
+  if ($null -ne $script:subWindow) {
+    try { $script:subWindow.Close() } catch { }
   }
   [System.Windows.Threading.Dispatcher]::CurrentDispatcher.InvokeShutdown()
-}
-
-function Test-MouseZone {
-  if ($null -eq $script:bar) { return }
-  $point = [System.Windows.Forms.Cursor]::Position
-  $area = [System.Windows.SystemParameters]::WorkArea
-  $center = $area.Left + $area.Width / 2
-  $nearBottom = ($point.Y -ge ($area.Bottom - 5)) -and ([math]::Abs($point.X - $center) -lt 260)
-  if ($nearBottom -and -not $script:bar.IsVisible -and $script:ui.controlBar) { Show-ControlBar $false }
-
-  if ($script:bar.IsVisible -and -not $script:settings.IsVisible) {
-    $overBar = $script:bar.IsMouseOver
-    $active = $script:bar.IsActive
-    if ([DateTime]::UtcNow -lt $script:barStickyUntil -or $overBar -or $active) {
-      $script:awaySince = $null
-    } else {
-      if ($null -eq $script:awaySince) {
-        $script:awaySince = [DateTime]::UtcNow
-      } elseif (([DateTime]::UtcNow - $script:awaySince).TotalSeconds -gt 3) {
-        Hide-ControlBar
-      }
-    }
-  }
 }
 
 function Initialize-Timers {
@@ -1090,16 +744,12 @@ function Initialize-Timers {
 
   $script:housekeepingTimer = New-Object System.Windows.Threading.DispatcherTimer
   $script:housekeepingTimer.Interval = [TimeSpan]::FromMilliseconds(250)
-  $script:housekeepingTimer.add_Tick({
-    Expire-Cues
-    Test-MouseZone
-  })
+  $script:housekeepingTimer.add_Tick({ Expire-Cues })
 
   $script:topmostTimer = New-Object System.Windows.Threading.DispatcherTimer
   $script:topmostTimer.Interval = [TimeSpan]::FromSeconds(2)
   $script:topmostTimer.add_Tick({
     if ($script:hwndSub -ne [IntPtr]::Zero -and $script:subWindow.IsVisible) { [RtNative]::KeepTopmost($script:hwndSub) }
-    if ($script:hwndBar -ne [IntPtr]::Zero -and $script:bar.IsVisible) { [RtNative]::KeepTopmost($script:hwndBar) }
   })
 
   $script:subtitleTimer = New-Object System.Windows.Threading.DispatcherTimer
@@ -1109,15 +759,13 @@ function Initialize-Timers {
 
 function Initialize-Windows {
   Initialize-SubtitleWindow
-  Initialize-ControlBar
-  Initialize-SettingsWindow
   $script:syncing = $false
   Update-StyleVisuals
 }
 
 function Run-SelfTest {
   $script:style.fontSize = 34
-  if ($SelfTestMeeting) { $script:style.bilingual = $false }
+  if ($SelfTestMeeting) { $script:style.bilingual = $true }
   Update-StyleVisuals
   $script:subWindow.Show()
   $script:hwndSub = Get-WindowHandle $script:subWindow
@@ -1126,14 +774,17 @@ function Run-SelfTest {
     Upsert-Cue ([pscustomobject]@{
       id = 'selftest'
       holdMs = 5000
+      finished = $false
       lines = @(
-        [pscustomobject]@{ kind = 'source'; text = '会议模式临时原文自检'; live = $true }
+        [pscustomobject]@{ kind = 'source'; text = '会议模式双语文案自检'; live = $true },
+        [pscustomobject]@{ kind = 'target'; text = 'Meeting mode bilingual self-test'; live = $true }
       )
     })
   } else {
     Upsert-Cue ([pscustomobject]@{
       id = 'selftest'
       holdMs = 5000
+      finished = $false
       lines = @(
         [pscustomobject]@{ kind = 'target'; text = '实时字幕叠加窗自检'; live = $false },
         [pscustomobject]@{ kind = 'source'; text = 'Subtitle overlay self-test'; live = $false }
@@ -1152,6 +803,85 @@ function Run-SelfTest {
   [System.Windows.Threading.Dispatcher]::Run()
 }
 
+function New-TestCue([string]$id, [string]$source, [string]$target, [bool]$finished) {
+  $lines = @([pscustomobject]@{ kind = 'source'; text = $source; live = $false })
+  if ($target -ne '') { $lines = @($lines + [pscustomobject]@{ kind = 'target'; text = $target; live = $false }) }
+  return [pscustomobject]@{ id = $id; lines = $lines; holdMs = 6000; finished = $finished }
+}
+
+function Set-TestClock([int]$milliseconds) {
+  $script:nowOverride = $script:testBase.AddMilliseconds($milliseconds)
+}
+
+function Assert-Displayed([string]$stage, [string]$expected) {
+  $chosen = Select-DisplayedCue
+  $actual = if ($null -eq $chosen) { '<none>' } else { $chosen.id }
+  $ok = ($actual -eq $expected)
+  if (-not $ok) { $script:selfTestStatus = 1 }
+  $mark = if ($ok) { 'PASS' } else { 'FAIL' }
+  Write-Output ("{0} {1}: expected={2} actual={3}" -f $mark, $stage, $expected, $actual)
+}
+
+# Pure state-machine check: no windows, no stdin. Verifies that a finished
+# translation owns the line for minReadMs and that the next original cannot
+# replace it before its own translation is ready.
+function Run-SelfTestHold {
+  $script:style.minReadMs = 1800
+  $script:style.display = 'primary'
+  $script:testBase = [DateTime]::UtcNow
+  $script:nowOverride = $script:testBase
+  $script:cues.Clear()
+  $script:displayedId = ''
+
+  Set-TestClock 0
+  [void](Store-Cue (New-TestCue 'c1' '第一句话' '' $false))
+  Assert-Displayed 't=0 原文先上屏' 'c1'
+  Set-TestClock 100
+  [void](Store-Cue (New-TestCue 'c1' '第一句话' 'First' $false))
+  Assert-Displayed 't=100 译文开始流式输出' 'c1'
+  Set-TestClock 200
+  [void](Store-Cue (New-TestCue 'c1' '第一句话' 'First sentence.' $true))
+  Assert-Displayed 't=200 译文定稿' 'c1'
+
+  Set-TestClock 400
+  [void](Store-Cue (New-TestCue 'c2' '第二句话' '' $false))
+  Assert-Displayed 't=400 下一句原文不抢占译文' 'c1'
+
+  Set-TestClock 900
+  [void](Store-Cue (New-TestCue 'c2' '第二句话' 'Second' $false))
+  Assert-Displayed 't=900 下一句译文未满阅读窗口' 'c1'
+
+  Set-TestClock 1500
+  [void](Store-Cue (New-TestCue 'c2' '第二句话' 'Second sentence.' $true))
+  Assert-Displayed 't=1500 阅读窗口未满仍保留' 'c1'
+
+  Set-TestClock 1950
+  Assert-Displayed 't=1950 阅读窗口满足后切换' 'c2'
+
+  Set-TestClock 2100
+  [void](Store-Cue (New-TestCue 'c3' '第三句话' '' $false))
+  Assert-Displayed 't=2100 第三句原文不抢占' 'c2'
+
+  Set-TestClock 9000
+  Assert-Displayed 't=9000 超时后跟随最新一段' 'c3'
+
+  $script:cues.Clear()
+  $script:displayedId = ''
+  Set-TestClock 10000
+  [void](Store-Cue (New-TestCue 'd1' '原文一' '译文一' $false))
+  Assert-Displayed 't=10000 流式译文先上屏' 'd1'
+  Set-TestClock 11000
+  [void](Store-Cue (New-TestCue 'd1' '原文一' '译文一还在增长' $false))
+  Set-TestClock 12500
+  [void](Store-Cue (New-TestCue 'd2' '原文二' '译文二' $false))
+  Assert-Displayed 't=12500 流式输出中不切断' 'd1'
+  Set-TestClock 13000
+  [void](Store-Cue (New-TestCue 'd1' '原文一' '译文一还在增长。' $true))
+  Assert-Displayed 't=13000 定稿且阅读窗口满后切换' 'd2'
+
+  Write-Output ('SUMMARY failures=' + $script:selfTestStatus)
+}
+
 function Run-Overlay {
   if ($ConfigBase64 -ne '') {
     try {
@@ -1167,12 +897,6 @@ function Run-Overlay {
   [RtNative]::MakeClickThrough($script:hwndSub)
   $script:subWindow.Hide()
 
-  $script:bar.Show()
-  $script:hwndBar = Get-WindowHandle $script:bar
-  [RtNative]::MakeToolWindow($script:hwndBar)
-  $script:bar.Hide()
-  Position-ControlBar
-
   Initialize-Tray
   Initialize-Hotkeys
   Initialize-Timers
@@ -1184,6 +908,11 @@ function Run-Overlay {
 
   Send-Json @{ op = 'ready' }
   [System.Windows.Threading.Dispatcher]::Run()
+}
+
+if ($SelfTestHold) {
+  Run-SelfTestHold
+  exit $script:selfTestStatus
 }
 
 Initialize-Windows

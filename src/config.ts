@@ -24,11 +24,12 @@ export interface Config {
     bilingual?: boolean
     fontFamily?: string
     holdMs?: number
+    minReadMs?: number
   }
   meeting?: { autoPauseAfterMs?: number }
   media?: { glossary?: string[] }
   debug?: { dumpAudioDir?: string }
-  ui?: { tray?: boolean; controlBar?: boolean; controlBarHotkey?: string; showStatusDot?: boolean }
+  ui?: { tray?: boolean }
   hotkeys?: { enabled?: boolean }
 }
 
@@ -52,11 +53,12 @@ export interface ResolvedSettings {
     bilingual: boolean
     fontFamily: string
     holdMs: number
+    minReadMs: number
   }
   meeting: { autoPauseAfterMs: number }
   media: { glossary: string[] }
   debug: { dumpAudioDir: string }
-  ui: { tray: boolean; controlBar: boolean; controlBarHotkey: string; showStatusDot: boolean }
+  ui: { tray: boolean }
   hotkeys: { enabled: boolean }
 }
 
@@ -100,22 +102,34 @@ export const Config = z.object({
     bilingual: z.boolean(),
     fontFamily: z.string(),
     holdMs: z.natural().max(60000),
+    minReadMs: z.natural().max(30000),
   }),
   meeting: z.object({ autoPauseAfterMs: z.natural().max(3600000) }),
   media: z.object({ glossary: z.array(z.string()) }),
   debug: z.object({ dumpAudioDir: z.string() }),
-  ui: z.object({
-    tray: z.boolean(),
-    controlBar: z.boolean(),
-    controlBarHotkey: z.string(),
-    showStatusDot: z.boolean(),
-  }),
+  ui: z.object({ tray: z.boolean() }),
   hotkeys: z.object({ enabled: z.boolean() }),
 }).volatile()
 
 const presets = {
-  meeting: { silenceMs: 280, maxSegmentMs: 5000, maxLines: 2, holdMs: 3500, bilingual: false, fontSize: 30 },
-  media: { silenceMs: 550, maxSegmentMs: 7000, maxLines: 3, holdMs: 6000, bilingual: true, fontSize: 34 },
+  meeting: {
+    silenceMs: 280,
+    maxSegmentMs: 5000,
+    maxLines: 2,
+    holdMs: 6000,
+    minReadMs: 1800,
+    bilingual: true,
+    fontSize: 30,
+  },
+  media: {
+    silenceMs: 550,
+    maxSegmentMs: 7000,
+    maxLines: 3,
+    holdMs: 6000,
+    minReadMs: 1200,
+    bilingual: true,
+    fontSize: 34,
+  },
 } as const
 
 /**
@@ -159,16 +173,12 @@ export function resolveConfig(input: Config): ResolvedSettings {
       bilingual: input.subtitle?.bilingual ?? base.bilingual,
       fontFamily: input.subtitle?.fontFamily ?? '',
       holdMs: input.subtitle?.holdMs ?? base.holdMs,
+      minReadMs: input.subtitle?.minReadMs ?? base.minReadMs,
     },
     meeting: { autoPauseAfterMs: input.meeting?.autoPauseAfterMs ?? 120000 },
     media: { glossary: input.media?.glossary ?? [] },
     debug: { dumpAudioDir: input.debug?.dumpAudioDir ?? '' },
-    ui: {
-      tray: input.ui?.tray ?? true,
-      controlBar: input.ui?.controlBar ?? true,
-      controlBarHotkey: input.ui?.controlBarHotkey ?? 'Ctrl+Alt+H',
-      showStatusDot: input.ui?.showStatusDot ?? true,
-    },
+    ui: { tray: input.ui?.tray ?? true },
     hotkeys: { enabled: input.hotkeys?.enabled ?? true },
   }
 }
