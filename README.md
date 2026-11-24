@@ -171,7 +171,7 @@ dsh --profile rt --no-open
 
 启动成功后：
 
-- 任务栏托盘出现「DSH 实时字幕」图标，`powershell` overlay 进程开始常驻。
+- 任务栏托盘显示插件图标（`assets/icon.jpeg` 缩放到 32×32），`powershell` overlay 进程开始常驻。
 - 字幕窗默认隐藏；DSH 窗口右下角会出现控制条（没有出现时刷新页面，或完全退出 DSH 后重开）。
 - 托盘与全局热键不依赖 DSH 网页窗口；控制条在 DSH 页面内，斜杠命令需要 DSH 会话。
 
@@ -316,10 +316,16 @@ dsh plugin --profile rt remove dsh-rt-translation
 - 强制切分长句后，重叠部分的文本去重尚未实现。
 - 字体默认使用统一字体，尚未按目的语言自动选择字体；多显示器只按主显示器定位。
 - `debug.dumpAudioDir` 尚未接入，不会把音频落盘。
-- 托盘图标使用系统通用图标，不是专属品牌图标。
+- 托盘图标使用 `assets/icon.jpeg`（自动缩放为 32×32）；替换该文件后重启 DSH 即可换图标。
 - 控制条固定在 DSH 窗口右下角；窄窗口下会与页面内容重叠，可收起为状态胶囊。
 
 ## 自检与排障
+
+验证托盘图标能从 `assets/icon.jpeg` 生成（输出 `PASS tray icon 32x32`，退出码 0）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File assets/overlay/overlay.ps1 -SelfTestIcon
+```
 
 只验证多行滚动窗口的状态机（不弹窗，9 个时序断言，退出码 0）：
 
@@ -381,6 +387,7 @@ loopback-capture (PCM 48k stereo)
 
 - `npm test`：77/77 通过（含面板路由与快照/动作测试）。
 - `overlay.ps1 -SelfTestRows`：9/9 通过（行窗口、当前句在最后一行、译文最短阅读、静音后保留历史行）。
+- `overlay.ps1 -SelfTestIcon`：`PASS tray icon 32x32`，退出码 0。
 - `overlay.ps1 -SelfTest`、`-SelfTestMeeting` 均输出 `selftest window visible=True`，退出码 0。
 - NDJSON 冒烟（`style` / `ui` / `cue` / `clear` / `shutdown`）正常退出。
 - `npm run typecheck` 仍受本地 checkout 路径缺失影响，见交接文档。

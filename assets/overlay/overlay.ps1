@@ -1,4 +1,4 @@
-﻿param([switch]$SelfTest, [switch]$SelfTestMeeting, [switch]$SelfTestRows, [switch]$SelfTestHold, [string]$ConfigBase64 = '')
+﻿param([switch]$SelfTest, [switch]$SelfTestMeeting, [switch]$SelfTestRows, [switch]$SelfTestHold, [switch]$SelfTestIcon, [string]$ConfigBase64 = '')
 
 $ErrorActionPreference = 'Stop'
 
@@ -24,6 +24,7 @@ public static class RtNative
     [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
     [DllImport("user32.dll")] public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr hIcon);
     [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint modifiers, uint vk);
     [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
     [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
@@ -126,6 +127,7 @@ $script:seq = 0
 $script:syncing = $true
 $script:shuttingDown = $false
 $script:hwndSub = [IntPtr]::Zero
+$script:trayIconHandle = [IntPtr]::Zero
 $script:userPositioned = $false
 $script:manualLeft = $null
 $script:manualTop = $null
@@ -425,10 +427,47 @@ function Flush-SubtitlePatch {
   Send-Action 'setSubtitle' $json
 }
 
+function Dispose-TrayIcon {
+  if ($script:trayIconHandle -ne [IntPtr]::Zero) {
+    [void][RtNative]::DestroyIcon($script:trayIconHandle)
+    $script:trayIconHandle = [IntPtr]::Zero
+  }
+}
+
+# Draw the plugin artwork (assets/icon.jpeg) into a tray-sized icon. The shell
+# asks for 16-32 px, so a 32 px high-quality downscale keeps the glyph crisp.
+function New-TrayIcon {
+  $iconPath = Join-Path $PSScriptRoot '..\icon.jpeg'
+  try {
+    if (-not (Test-Path -LiteralPath $iconPath)) { return [System.Drawing.SystemIcons]::Application }
+    $source = [System.Drawing.Image]::FromFile((Resolve-Path -LiteralPath $iconPath).Path)
+    try {
+      $size = 32
+      $bitmap = New-Object System.Drawing.Bitmap $size, $size
+      try {
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        try {
+          $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+          $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+          $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+          $graphics.DrawImage($source, 0, 0, $size, $size)
+        } finally { $graphics.Dispose() }
+        $handle = $bitmap.GetHicon()
+      } finally { $bitmap.Dispose() }
+      if ($script:trayIconHandle -ne [IntPtr]::Zero) { Dispose-TrayIcon }
+      $script:trayIconHandle = $handle
+      return [System.Drawing.Icon]::FromHandle($handle)
+    } finally { $source.Dispose() }
+  } catch {
+    Send-Log ('无法加载托盘图标: ' + [string]$_.Exception.Message)
+    return [System.Drawing.SystemIcons]::Application
+  }
+}
+
 function Initialize-Tray {
   if ($null -ne $script:notify) { return }
   $script:notify = New-Object System.Windows.Forms.NotifyIcon
-  $script:notify.Icon = [System.Drawing.SystemIcons]::Application
+  $script:notify.Icon = New-TrayIcon
   $script:notify.Text = 'DSH 实时字幕'
   $script:notify.Visible = $true
   $script:notify.add_MouseClick({
@@ -640,6 +679,7 @@ function Apply-Ui($incoming) {
   } elseif ($null -ne $script:notify) {
     try { $script:notify.Visible = $false; $script:notify.Dispose() } catch { }
     $script:notify = $null
+    Dispose-TrayIcon
   }
   if ($script:ui.hotkeysEnabled) { Register-Hotkeys } else { Unregister-Hotkeys }
 }
@@ -693,6 +733,7 @@ function Shutdown-Overlay {
   if ($null -ne $script:notify) {
     try { $script:notify.Visible = $false; $script:notify.Dispose() } catch { }
   }
+  Dispose-TrayIcon
   if ($null -ne $script:subWindow) {
     try { $script:subWindow.Close() } catch { }
   }
@@ -861,6 +902,20 @@ function Run-Overlay {
 
   Send-Json @{ op = 'ready' }
   [System.Windows.Threading.Dispatcher]::Run()
+}
+
+function Run-SelfTestIcon {
+  $icon = New-TrayIcon
+  $ok = ($script:trayIconHandle -ne [IntPtr]::Zero)
+  if (-not $ok) { $script:selfTestStatus = 1 }
+  $mark = if ($ok) { 'PASS' } else { 'FAIL' }
+  Write-Output ("{0} tray icon {1}x{2}" -f $mark, $icon.Width, $icon.Height)
+  Dispose-TrayIcon
+}
+
+if ($SelfTestIcon) {
+  Run-SelfTestIcon
+  exit $script:selfTestStatus
 }
 
 if ($SelfTestRows -or $SelfTestHold) {
