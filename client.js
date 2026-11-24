@@ -13,7 +13,8 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const { useCallback, useEffect, useRef, useState } = React
 
-    const CHANNEL = '/rt-translation'
+    const STATE_URL = '/plugins/dsh-rt-translation/state'
+    const ACTION_URL = '/plugins/dsh-rt-translation/action'
     const POLL_MS = 1500
 
     const PHASE_LABEL = {
@@ -148,6 +149,36 @@ window.__ModuleLoader__.load({
       return String(value)
     }
 
+    /** Map transport/auth failures to a short message for the panel footer. */
+    function apiFailure(error) {
+      const status = error && error.status
+      if (status === 401 || status === 403) return 'DSH 会话未授权，请刷新页面'
+      if (status === 503) return 'DSH Host 尚未就绪'
+      return error && error.message ? error.message : String(error)
+    }
+
+    async function requestJson(url, init) {
+      const response = await fetch(url, { cache: 'no-store', ...init })
+      if (!response.ok) {
+        const failure = new Error(`HTTP ${response.status} ${url}`)
+        failure.status = response.status
+        throw failure
+      }
+      return response.json()
+    }
+
+    async function fetchState() {
+      return requestJson(STATE_URL, { headers: { accept: 'application/json' } })
+    }
+
+    async function postAction(payload) {
+      return requestJson(ACTION_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify(payload),
+      })
+    }
+
     function select(pairs, value, onChange, style) {
       return h('select', {
         value: String(value),
@@ -165,8 +196,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function ControlBar(props) {
-      const call = props.call
+    function ControlBar() {
       const [snap, setSnap] = useState(null)
       const [open, setOpen] = useState(false)
       const [error, setError] = useState('')
@@ -183,13 +213,12 @@ window.__ModuleLoader__.load({
       }, [])
 
       const refresh = useCallback(async () => {
-        if (typeof call !== 'function') { setError('未连接到 DSH Host'); return }
         try {
-          apply(await call('state', {}))
+          apply(await fetchState())
         } catch (failure) {
-          setError(failure && failure.message ? failure.message : String(failure))
+          setError(apiFailure(failure))
         }
-      }, [call, apply])
+      }, [apply])
 
       useEffect(() => {
         alive.current = true
@@ -204,15 +233,14 @@ window.__ModuleLoader__.load({
       }, [refresh])
 
       const act = useCallback(async (action, value) => {
-        if (typeof call !== 'function') return
         try {
           const payload = { action }
           if (value !== undefined) payload.value = value
-          apply(await call('action', payload))
+          apply(await postAction(payload))
         } catch (failure) {
-          setError(failure && failure.message ? failure.message : String(failure))
+          setError(apiFailure(failure))
         }
-      }, [call, apply])
+      }, [apply])
 
       if (snap === null) {
         return h('div', { style: S.root },
@@ -320,14 +348,12 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'connection'],
+      inject: ['slots'],
       apply(ctx) {
-        const call = (endpoint, payload) => ctx.connection.rpc.call(CHANNEL, endpoint, payload)
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay',
           id: 'rt-translation-control',
           order: 120,
-          inject: () => ({ call }),
         }, ControlBar))
       },
     }

@@ -1,12 +1,17 @@
-/** Authenticated RPC bridge between the in-window control panel and the controller. */
+/** Authenticated HTTP routes between the in-window control panel and the controller. */
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ResolvedSettings } from './config.ts'
 import type { Controller } from './controller.ts'
 import type { ActionName, UiState } from './subtitle/protocol.ts'
 import { PANEL_ACTIONS } from './subtitle/protocol.ts'
 import { dispatchAction } from './ui.ts'
 
-/** Absolute Connection channel the browser panel posts to. */
-export const PANEL_CHANNEL = '/rt-translation'
+/** Exact paths the browser half polls; both live under the `/plugins` prefix. */
+export const PANEL_STATE_PATH = '/plugins/dsh-rt-translation/state'
+export const PANEL_ACTION_PATH = '/plugins/dsh-rt-translation/action'
+
+const MAX_BODY_BYTES = 64 * 1024
+const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }
 
 export interface PanelDeps {
   controller: Controller
@@ -30,10 +35,19 @@ export type PanelResult =
   | { ok: true; value: PanelSnapshot }
   | { ok: false; error: { code: string; message: string; details: object } }
 
-const failure = (code: string, message: string): PanelResult => ({
-  ok: false,
-  error: { code, message, details: {} },
-})
+/** Minimal WebServer face used here, so the plugin type-checks without the harness packages. */
+export interface PanelWebServer {
+  register(route: {
+    kind: 'exact'
+    path: string
+    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
+  }): () => void
+}
+
+/** Minimal Connection face: request rejection is the only gate needed for these routes. */
+export interface PanelConnection {
+  requestRejection(request: { headers: Record<string, string | string[] | undefined> }): 401 | 403 | undefined
+}
 
 /** Build one snapshot from the same settings the controller reads. */
 export function panelSnapshot(deps: PanelDeps): PanelSnapshot {
@@ -48,33 +62,142 @@ export function panelSnapshot(deps: PanelDeps): PanelSnapshot {
   }
 }
 
-/**
- * Handle one panel RPC call: `state` reads, `action` drives the controller.
- * The handler is stateless; the panel polls `state` after acting.
- */
-export function createPanelHandler(deps: PanelDeps) {
-  return async (endpoint: string, payload: unknown): Promise<PanelResult> => {
-    switch (endpoint) {
-      case 'state':
-        return { ok: true, value: panelSnapshot(deps) }
-      case 'action': {
-        const record = (payload ?? {}) as { action?: unknown; value?: unknown }
-        if (typeof record.action !== 'string' || !PANEL_ACTIONS.has(record.action as ActionName)) {
-          return failure('rt/bad-action', `不支持的操作: ${String(record.action)}`)
-        }
-        try {
-          await dispatchAction(
-            { op: 'action', name: record.action as ActionName, value: record.value as never },
-            deps.controller,
-            deps.log,
-          )
-        } catch (error) {
-          return failure('rt/action-failed', error instanceof Error ? error.message : String(error))
-        }
-        return { ok: true, value: panelSnapshot(deps) }
-      }
-      default:
-        return failure('rt/bad-endpoint', `未知接口: ${endpoint}`)
+/** Read a bounded JSON object body; resolves undefined for malformed or oversized input. */
+async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown> | undefined> {
+  const chunks: Buffer[] = []
+  let size = 0
+  try {
+    for await (const chunk of req) {
+      const part = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      size += part.length
+      if (size > MAX_BODY_BYTES) return undefined
+      chunks.push(part)
     }
+  } catch {
+    return undefined
   }
+  const text = Buffer.concat(chunks).toString('utf8').trim()
+  if (text === '') return {}
+  try {
+    const value: unknown = JSON.parse(text)
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function writeJson(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, JSON_HEADERS)
+  res.end(JSON.stringify(body))
+}
+
+/** Resolve the auth gate lazily: the Connection service may bind after this plugin. */
+function authorize(
+  res: ServerResponse,
+  connection: () => PanelConnection | undefined,
+): boolean {
+  const gate = connection()
+  if (gate === undefined) {
+    writeJson(res, 503, { error: 'authentication unavailable' })
+    return false
+  }
+  const rejection = gate.requestRejection({ headers: {} as Record<string, string | string[] | undefined> })
+  if (rejection !== undefined) {
+    writeJson(res, rejection, { error: rejection === 401 ? 'unauthorized' : 'forbidden' })
+    return false
+  }
+  return true
+}
+
+/**
+ * Register the two exact routes the control panel uses. `webServer.register`
+ * returns the disposer; call this inside `ctx.effect` so the routes vanish
+ * with the plugin.
+ */
+export function registerPanelRoutes(
+  webServer: PanelWebServer,
+  connection: () => PanelConnection | undefined,
+  deps: PanelDeps,
+): () => void {
+  const stateRoute = webServer.register({
+    kind: 'exact',
+    path: PANEL_STATE_PATH,
+    handler: (req, res) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { allow: 'GET, HEAD', 'cache-control': 'no-store' })
+        res.end()
+        return
+      }
+      if (!authorizeRequest(req, res, connection)) return
+      const body = JSON.stringify({ ok: true, value: panelSnapshot(deps) })
+      res.writeHead(200, JSON_HEADERS)
+      res.end(req.method === 'HEAD' ? undefined : body)
+    },
+  })
+
+  const actionRoute = webServer.register({
+    kind: 'exact',
+    path: PANEL_ACTION_PATH,
+    handler: async (req, res) => {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { allow: 'POST', 'cache-control': 'no-store' })
+        res.end()
+        return
+      }
+      if (!authorizeRequest(req, res, connection)) return
+      const payload = await readJsonBody(req)
+      if (payload === undefined) {
+        writeJson(res, 400, { ok: false, error: { code: 'rt/bad-body', message: '请求体必须是 JSON 对象', details: {} } })
+        return
+      }
+      const action = payload.action
+      if (typeof action !== 'string' || !PANEL_ACTIONS.has(action as ActionName)) {
+        writeJson(res, 400, {
+          ok: false,
+          error: { code: 'rt/bad-action', message: `不支持的操作: ${String(action)}`, details: {} },
+        })
+        return
+      }
+      try {
+        await dispatchAction(
+          { op: 'action', name: action as ActionName, value: payload.value as never },
+          deps.controller,
+          deps.log,
+        )
+      } catch (error) {
+        writeJson(res, 500, {
+          ok: false,
+          error: { code: 'rt/action-failed', message: error instanceof Error ? error.message : String(error), details: {} },
+        })
+        return
+      }
+      writeJson(res, 200, { ok: true, value: panelSnapshot(deps) })
+    },
+  })
+
+  return () => {
+    stateRoute()
+    actionRoute()
+  }
+}
+
+/** Check the shared Connection fence, passing the request's real headers. */
+function authorizeRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  connection: () => PanelConnection | undefined,
+): boolean {
+  const gate = connection()
+  if (gate === undefined) {
+    writeJson(res, 503, { error: 'authentication unavailable' })
+    return false
+  }
+  const rejection = gate.requestRejection({ headers: req.headers })
+  if (rejection !== undefined) {
+    writeJson(res, rejection, { error: rejection === 401 ? 'unauthorized' : 'forbidden' })
+    return false
+  }
+  return true
 }
