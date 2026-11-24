@@ -530,4 +530,21 @@ dsh-rt-translation/
 8. 错误恢复、统计、预设细化。
 9. 打包与安装验证（`dsh plugin add`）。
 
+## 18. 2026-11-24 修订：多行历史字幕与控制条入窗
+
+以下内容覆盖前文对应章节；未提到的设计保持不变。
+
+| 事项 | 原设计 | 现实现 |
+| --- | --- | --- |
+| 字幕形态 | 一次只显示最新一条（`display=primary`），译文轮到 `holdMs` 后淡出 | 显示 2–5 行滚动历史：最后一行为当前正在说的话，上方为最近几句；每行小字原文 + 大字译文 |
+| 行数含义 | `maxLines` = 渲染的文本块上限 | `maxLines` = 句子行数（2–5），会议默认 3、影视默认 4 |
+| 会议原文 | `bilingual=false`，译文到达后替换原文行 | `bilingual=true`，默认原文 + 译文双语 |
+| 译文停留 | `holdMs` 内没有新 cue 才淡出，新 cue 可立即抢占 | `minReadMs`（会议 1.8 s / 影视 1.5 s）内译文不会滚出；流式中的译文不被切断；`holdMs` 改为静音清屏时间（6 s） |
+| 控制面 | 独立 WPF 控制条 + 设置窗，鼠标热区与 `Ctrl+Alt+H` 唤出 | DSH 窗口 `shell.overlay` 内的控制条（`client.js`），通过 `/rt-translation` Connection RPC 驱动同一控制器；移除独立控制条、设置窗、鼠标热区、`Ctrl+Alt+H`、`/rt ui` 与 `ui.controlBar*`；托盘保留（左键开始/停止） |
+| 子字幕协议 | `Cue{id,lines,holdMs}`；Host 下发 `state` / `panel` | `Cue` 增加 `finished`；`StylePayload` 增加 `minReadMs`；移除 `state` / `panel` 下发与 `display` |
+| 预设 | 会议 hold 3.5 s、仅译文；影视 3 行、6 s | 会议 3 行、6 s、1.8 s；影视 4 行、6 s、1.5 s；两者默认双语 |
+
+验收：`npm test` 74/74；`overlay.ps1 -SelfTestRows` 9/9；控制条的浏览器半需重启 DSH 后真机确认（见 `docs/handoff-2026-11-24.md`）。
+
+
 

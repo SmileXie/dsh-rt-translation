@@ -69,7 +69,7 @@ export function apply(ctx: Context, config: Volatile<RtConfig>): void {
     }),
   })
   const subtitles = new SubtitleModel({
-    maxCues: Math.max(3, settings.subtitle.maxLines),
+    maxCues: Math.max(3, settings.subtitle.maxLines + 1),
     bilingual: settings.subtitle.bilingual,
     holdMs: settings.subtitle.holdMs,
   })

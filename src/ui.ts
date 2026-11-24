@@ -20,14 +20,13 @@ export function parseSubtitlePatch(value: unknown): Partial<ResolvedSettings['su
   const record = raw as Record<string, unknown>
   const patch: Partial<ResolvedSettings['subtitle']> = {}
   if (typeof record.fontSize === 'number' && Number.isFinite(record.fontSize)) patch.fontSize = Math.round(clamp(record.fontSize, 12, 96))
-  if (typeof record.maxLines === 'number' && Number.isFinite(record.maxLines)) patch.maxLines = Math.round(clamp(record.maxLines, 1, 6))
+  if (typeof record.maxLines === 'number' && Number.isFinite(record.maxLines)) patch.maxLines = Math.round(clamp(record.maxLines, 2, 5))
   if (typeof record.widthPercent === 'number' && Number.isFinite(record.widthPercent)) patch.widthPercent = Math.round(clamp(record.widthPercent, 30, 100))
   if (typeof record.marginPercent === 'number' && Number.isFinite(record.marginPercent)) patch.marginPercent = Math.round(clamp(record.marginPercent, 0, 30))
   if (typeof record.opacity === 'number' && Number.isFinite(record.opacity)) patch.opacity = clamp(record.opacity, 0.1, 1)
   if (typeof record.background === 'boolean') patch.background = record.background
   if (typeof record.bilingual === 'boolean') patch.bilingual = record.bilingual
   if (record.position === 'top' || record.position === 'bottom') patch.position = record.position
-  if (record.display === 'primary' || record.display === 'all') patch.display = record.display
   if (typeof record.fontFamily === 'string' && record.fontFamily.trim() !== '') patch.fontFamily = record.fontFamily.trim()
   if (typeof record.holdMs === 'number' && Number.isFinite(record.holdMs)) patch.holdMs = Math.round(clamp(record.holdMs, 500, 60_000))
   if (typeof record.minReadMs === 'number' && Number.isFinite(record.minReadMs)) patch.minReadMs = Math.round(clamp(record.minReadMs, 0, 30_000))

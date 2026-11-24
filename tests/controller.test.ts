@@ -88,7 +88,7 @@ test('setSubtitle 重建字幕配置并推送样式', async () => {
   await c.setSubtitle({ fontSize: 40, bilingual: true })
 
   assert.equal(d.settingsValue.subtitle.fontSize, 40)
-  assert.deepEqual(configured.at(-1), { maxCues: 3, bilingual: true, holdMs: 6000 })
+  assert.deepEqual(configured.at(-1), { maxCues: 4, bilingual: true, holdMs: 6000 })
   assert.equal(styles.at(-1)?.fontSize, 40)
 })
 
@@ -141,7 +141,7 @@ test('setMode 保留用户改过的字号，只替换仍是预设值的字段', 
 
   assert.equal(d.settingsValue.preset, 'media')
   assert.equal(d.settingsValue.subtitle.fontSize, 50)
-  assert.equal(d.settingsValue.subtitle.maxLines, 3)
+  assert.equal(d.settingsValue.subtitle.maxLines, 4)
   assert.equal(d.settingsValue.subtitle.bilingual, true)
 })
 

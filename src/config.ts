@@ -13,9 +13,9 @@ export interface Config {
   translate?: { provider?: string; model?: string; contextTurns?: number; followAgentDefault?: boolean; glossary?: string[] }
   segment?: { silenceMs?: number; maxSegmentMs?: number; preRollMs?: number }
   subtitle?: {
-    display?: 'primary' | 'all'
     position?: 'bottom' | 'top'
     fontSize?: number
+    /** Sentence rows on screen (2-5): the newest row is the sentence being spoken. */
     maxLines?: number
     widthPercent?: number
     marginPercent?: number
@@ -42,9 +42,9 @@ export interface ResolvedSettings {
   translate: { provider: string; model: string; contextTurns: number; followAgentDefault: boolean; glossary: string[] }
   segment: { silenceMs: number; maxSegmentMs: number; preRollMs: number }
   subtitle: {
-    display: 'primary' | 'all'
     position: 'bottom' | 'top'
     fontSize: number
+    /** Sentence rows on screen (2-5); the last one is the sentence being spoken. */
     maxLines: number
     widthPercent: number
     marginPercent: number
@@ -91,10 +91,9 @@ export const Config = z.object({
     preRollMs: z.natural().max(1000),
   }),
   subtitle: z.object({
-    display: z.union(['primary', 'all']),
     position: z.union(['bottom', 'top']),
     fontSize: z.natural().min(12).max(96),
-    maxLines: z.natural().min(1).max(6),
+    maxLines: z.natural().min(2).max(5),
     widthPercent: z.natural().min(30).max(100),
     marginPercent: z.natural().max(30),
     opacity: z.number().min(0.1).max(1),
@@ -115,7 +114,7 @@ const presets = {
   meeting: {
     silenceMs: 280,
     maxSegmentMs: 5000,
-    maxLines: 2,
+    maxLines: 3,
     holdMs: 6000,
     minReadMs: 1800,
     bilingual: true,
@@ -124,9 +123,9 @@ const presets = {
   media: {
     silenceMs: 550,
     maxSegmentMs: 7000,
-    maxLines: 3,
+    maxLines: 4,
     holdMs: 6000,
-    minReadMs: 1200,
+    minReadMs: 1500,
     bilingual: true,
     fontSize: 34,
   },
@@ -162,7 +161,6 @@ export function resolveConfig(input: Config): ResolvedSettings {
       preRollMs: input.segment?.preRollMs ?? 200,
     },
     subtitle: {
-      display: input.subtitle?.display ?? 'primary',
       position: input.subtitle?.position ?? 'bottom',
       fontSize: input.subtitle?.fontSize ?? base.fontSize,
       maxLines: input.subtitle?.maxLines ?? base.maxLines,

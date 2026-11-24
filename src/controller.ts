@@ -32,8 +32,8 @@ export interface ControllerDeps {
 const LANGUAGES = new Set(['zh', 'en', 'ja', 'ko', 'yue'])
 const BACKOFF = [1000, 2000, 5000]
 const PRESET_SUBTITLE = {
-  meeting: { fontSize: 30, maxLines: 2, holdMs: 6000, minReadMs: 1800, bilingual: true },
-  media: { fontSize: 34, maxLines: 3, holdMs: 6000, minReadMs: 1200, bilingual: true },
+  meeting: { fontSize: 30, maxLines: 3, holdMs: 6000, minReadMs: 1800, bilingual: true },
+  media: { fontSize: 34, maxLines: 4, holdMs: 6000, minReadMs: 1500, bilingual: true },
 } as const
 const PRESET_STYLE_KEYS = ['fontSize', 'maxLines', 'holdMs', 'minReadMs', 'bilingual'] as const
 
@@ -359,7 +359,8 @@ export class Controller {
   private applySubtitle(): void {
     const subtitle = this.deps.settings().subtitle
     this.deps.subtitles.configure({
-      maxCues: Math.max(3, subtitle.maxLines),
+      // Keep the visible history rows plus the sentence still being spoken.
+      maxCues: Math.max(3, subtitle.maxLines + 1),
       bilingual: subtitle.bilingual,
       holdMs: subtitle.holdMs,
     })

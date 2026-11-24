@@ -18,6 +18,7 @@ export interface UiState {
 
 export interface StylePayload {
   fontSize: number
+  /** Sentence rows on screen (2-5); the last one is the sentence being spoken. */
   maxLines: number
   position: 'bottom' | 'top'
   marginPercent: number
@@ -25,9 +26,8 @@ export interface StylePayload {
   opacity: number
   background: boolean
   bilingual: boolean
-  display: 'primary' | 'all'
   fontFamily: string
-  /** Minimum time a finished translation stays on screen before a newer cue may replace it. */
+  /** Minimum time a finished translation stays on screen before scrolling out. */
   minReadMs: number
 }
 
@@ -102,7 +102,6 @@ export function toStylePayload(subtitle: ResolvedSettings['subtitle']): StylePay
     opacity: subtitle.opacity,
     background: subtitle.background,
     bilingual: subtitle.bilingual,
-    display: subtitle.display,
     fontFamily: subtitle.fontFamily,
     minReadMs: subtitle.minReadMs,
   }

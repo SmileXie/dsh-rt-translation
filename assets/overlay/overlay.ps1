@@ -1,4 +1,4 @@
-﻿param([switch]$SelfTest, [switch]$SelfTestMeeting, [switch]$SelfTestHold, [string]$ConfigBase64 = '')
+﻿param([switch]$SelfTest, [switch]$SelfTestMeeting, [switch]$SelfTestRows, [switch]$SelfTestHold, [string]$ConfigBase64 = '')
 
 $ErrorActionPreference = 'Stop'
 
@@ -117,7 +117,6 @@ $script:style = [pscustomobject]@{
   opacity = 0.72
   background = $true
   bilingual = $true
-  display = 'primary'
   fontFamily = 'Microsoft YaHei UI'
   minReadMs = 1800
 }
@@ -202,14 +201,13 @@ function Apply-Style($incoming) {
   foreach ($property in $incoming.PSObject.Properties) {
     switch ($property.Name) {
       'fontSize' { $script:style.fontSize = [int](Clamp-Number $property.Value 12 96 32) }
-      'maxLines' { $script:style.maxLines = [int](Clamp-Number $property.Value 1 6 3) }
+      'maxLines' { $script:style.maxLines = [int](Clamp-Number $property.Value 2 5 3) }
       'widthPercent' { $script:style.widthPercent = Clamp-Number $property.Value 30 100 78 }
       'opacity' { $script:style.opacity = Clamp-Number $property.Value 0.1 1 0.72 }
       'marginPercent' { $script:style.marginPercent = Clamp-Number $property.Value 0 30 8 }
       'position' { if ($property.Value -eq 'top' -or $property.Value -eq 'bottom') { $script:style.position = [string]$property.Value } }
       'background' { $script:style.background = [bool]$property.Value }
       'bilingual' { $script:style.bilingual = [bool]$property.Value }
-      'display' { if ($property.Value -eq 'primary' -or $property.Value -eq 'all') { $script:style.display = [string]$property.Value } }
       'fontFamily' { if ([string]$property.Value -ne '') { $script:style.fontFamily = [string]$property.Value } }
       'minReadMs' { $script:style.minReadMs = [int](Clamp-Number $property.Value 0 30000 1800) }
     }
@@ -268,76 +266,44 @@ function Test-CueTarget($cue) {
   return $false
 }
 
-# Choose the one cue `display = primary` renders. A translation (or any settled
-# line) owns the screen until it has been readable for minReadMs and stopped
-# streaming, so the next sentence's original can never cut a translation short.
-function Select-DisplayedCue {
-  if ($script:cues.Count -eq 0) { return $null }
+function Get-RowLimit {
+  $limit = [int]$script:style.maxLines
+  if ($limit -lt 2) { return 2 }
+  if ($limit -gt 5) { return 5 }
+  return $limit
+}
+
+# Visible rows, oldest first: the last row is the sentence being spoken and the
+# rows above it are recent history. A translation that just appeared keeps one
+# extra row until minReadMs passed, so new speech cannot scroll it away early.
+function Select-VisibleCues {
+  if ($script:cues.Count -eq 0) { return @() }
   $now = Get-Now
-  $latest = $script:cues[$script:cues.Count - 1]
-  $displayed = $null
-  foreach ($cue in $script:cues) { if ($cue.id -eq $script:displayedId) { $displayed = $cue; break } }
-  if ($null -eq $displayed) {
-    $latest.shownAt = $now
-    $script:displayedId = $latest.id
-    return $latest
-  }
-
-  if ($null -eq $displayed.readAt) {
-    # Source-only partial: follow the newest line while the segment is recognized.
-    if ($displayed.id -ne $latest.id) {
-      $latest.shownAt = $now
-      $script:displayedId = $latest.id
-      return $latest
-    }
-    $displayed.shownAt = $now
-    return $displayed
-  }
-
-  $readMs = ($now - $displayed.readAt).TotalMilliseconds
-  # Only a finished cue may be replaced: cutting a streaming translation leaves half a sentence.
-  $settled = $displayed.finished
-  if ($readMs -ge [int]$script:style.minReadMs -and $settled) {
-    $newer = $null
-    for ($i = $script:cues.Count - 1; $i -ge 0; $i--) {
-      $candidate = $script:cues[$i]
-      if ($candidate.seq -le $displayed.seq) { break }
-      if ($null -ne $candidate.readAt) { $newer = $candidate; break }
-    }
-    if ($null -ne $newer) {
-      $newer.shownAt = $now
-      $script:displayedId = $newer.id
-      return $newer
+  $limit = Get-RowLimit
+  $count = [math]::Min($limit, $script:cues.Count)
+  $start = $script:cues.Count - $count
+  if ($start -gt 0) {
+    $older = $script:cues[$start - 1]
+    if ($null -ne $older.readAt -and ($now - $older.readAt).TotalMilliseconds -lt [int]$script:style.minReadMs) {
+      $start--
     }
   }
-
-  if (($now - $displayed.at).TotalMilliseconds -gt [math]::Max(250, [int]$displayed.holdMs)) {
-    $latest.shownAt = $now
-    $script:displayedId = $latest.id
-    return $latest
-  }
-  return $displayed
+  $visible = @()
+  for ($index = $start; $index -lt $script:cues.Count; $index++) { $visible += $script:cues[$index] }
+  return $visible
 }
 
 function Render-Cues {
   $script:subPanel.Children.Clear()
-  $visible = @($script:cues | Sort-Object seq)
-  if ($script:style.display -eq 'primary') {
-    $chosen = Select-DisplayedCue
-    $visible = if ($null -eq $chosen) { @() } else { @($chosen) }
-  } elseif ($visible.Count -gt [int]$script:style.maxLines) {
-    $visible = @($visible | Select-Object -Last ([int]$script:style.maxLines))
-  }
-
+  $visible = @(Select-VisibleCues)
+  $newestId = if ($visible.Count -gt 0) { $visible[$visible.Count - 1].id } else { '' }
   $rendered = 0
   foreach ($cue in $visible) {
-    if ($rendered -ge [int]$script:style.maxLines) { break }
-    $hasTarget = $false
-    foreach ($candidate in @($cue.lines)) {
-      if ($candidate.kind -eq 'target' -and ([string]$candidate.text).Trim() -ne '') { $hasTarget = $true; break }
-    }
+    $hasTarget = Test-CueTarget $cue
+    $isCurrent = ($cue.id -eq $newestId)
+    $rowOpacity = if ($isCurrent) { 1.0 } else { 0.7 }
+    $rowLines = 0
     foreach ($line in @($cue.lines)) {
-      if ($rendered -ge [int]$script:style.maxLines) { break }
       $text = [string]$line.text
       if ($text.Trim() -eq '') { continue }
       if (-not $script:style.bilingual -and $hasTarget -and $line.kind -eq 'source') { continue }
@@ -350,12 +316,13 @@ function Render-Cues {
       if ($line.kind -eq 'source' -and $script:style.bilingual -and $hasTarget) {
         $block.FontSize = [math]::Max(10, [double]$script:style.fontSize * 0.62)
         $block.Foreground = New-SolidBrush 255 214 214 218
-        $block.Opacity = 0.78
-        $block.Margin = New-Object System.Windows.Thickness 0, 1, 0, 3
+        $block.Opacity = 0.78 * $rowOpacity
+        $block.Margin = New-Object System.Windows.Thickness 0, 1, 0, 2
       } else {
         $block.FontSize = [double]$script:style.fontSize
         $block.FontWeight = [System.Windows.FontWeights]::SemiBold
         $block.Foreground = [System.Windows.Media.Brushes]::White
+        $block.Opacity = $rowOpacity
         $block.Margin = New-Object System.Windows.Thickness 0, 0, 0, 1
       }
       $effect = New-Object System.Windows.Media.Effects.DropShadowEffect
@@ -366,6 +333,12 @@ function Render-Cues {
       $block.Effect = $effect
       [void]$script:subPanel.Children.Add($block)
       $rendered++
+      $rowLines++
+    }
+    if ($rowLines -gt 0 -and -not $isCurrent) {
+      $gap = New-Object System.Windows.Controls.Border
+      $gap.Height = 4
+      [void]$script:subPanel.Children.Add($gap)
     }
   }
 
@@ -414,7 +387,6 @@ function Store-Cue($cue) {
       seq = $script:seq
       finished = $finished
       readAt = $(if ($hasTarget -or $finished) { $now } else { $null })
-      shownAt = $null
     }
     [void]$script:cues.Add($entry)
   }
@@ -426,22 +398,22 @@ function Upsert-Cue($cue) {
   if (Store-Cue $cue) { Render-Cues }
 }
 
-function Expire-Cues {
+# Clear every row after this much silence. While speech continues the rows
+# scroll naturally and the visible window drops old entries.
+function Remove-IdleCues {
+  if ($script:cues.Count -eq 0) { return $false }
+  $newest = $script:cues[$script:cues.Count - 1]
   $now = Get-Now
-  $removed = $false
-  for ($index = $script:cues.Count - 1; $index -ge 0; $index--) {
-    $cue = $script:cues[$index]
-    $last = $cue.at
-    if ($null -ne $cue.shownAt -and $cue.shownAt -gt $last) { $last = $cue.shownAt }
-    if (($now - $last).TotalMilliseconds -gt [math]::Max(250, [int]$cue.holdMs)) {
-      if ($cue.id -eq $script:displayedId) { $script:displayedId = '' }
-      $script:cues.RemoveAt($index)
-      $removed = $true
-    }
+  if (($now - $newest.at).TotalMilliseconds -gt [math]::Max(250, [int]$newest.holdMs)) {
+    $script:cues.Clear()
+    return $true
   }
-  if ($removed) { Render-Cues }
+  return $false
 }
 
+function Expire-Cues {
+  if (Remove-IdleCues) { Render-Cues }
+}
 function Queue-Subtitle($patchTable) {
   foreach ($key in $patchTable.Keys) { $script:pendingSubtitle[$key] = $patchTable[$key] }
   if (-not $script:subtitleTimer.IsEnabled) { $script:subtitleTimer.Start() }
@@ -813,75 +785,64 @@ function Set-TestClock([int]$milliseconds) {
   $script:nowOverride = $script:testBase.AddMilliseconds($milliseconds)
 }
 
-function Assert-Displayed([string]$stage, [string]$expected) {
-  $chosen = Select-DisplayedCue
-  $actual = if ($null -eq $chosen) { '<none>' } else { $chosen.id }
+function Assert-Rows([string]$stage, [string]$expected) {
+  $visible = @(Select-VisibleCues)
+  $ids = @($visible | ForEach-Object { $_.id })
+  $actual = if ($ids.Count -eq 0) { '<none>' } else { $ids -join ',' }
   $ok = ($actual -eq $expected)
   if (-not $ok) { $script:selfTestStatus = 1 }
   $mark = if ($ok) { 'PASS' } else { 'FAIL' }
   Write-Output ("{0} {1}: expected={2} actual={3}" -f $mark, $stage, $expected, $actual)
 }
 
-# Pure state-machine check: no windows, no stdin. Verifies that a finished
-# translation owns the line for minReadMs and that the next original cannot
-# replace it before its own translation is ready.
-function Run-SelfTestHold {
+# Pure state-machine check: no windows, no stdin. Verifies the rolling row
+# window, that the last row is the sentence being spoken, and that a fresh
+# translation keeps its row until minReadMs passed.
+function Run-SelfTestRows {
+  $script:style.maxLines = 3
   $script:style.minReadMs = 1800
-  $script:style.display = 'primary'
   $script:testBase = [DateTime]::UtcNow
   $script:nowOverride = $script:testBase
   $script:cues.Clear()
-  $script:displayedId = ''
 
   Set-TestClock 0
-  [void](Store-Cue (New-TestCue 'c1' '第一句话' '' $false))
-  Assert-Displayed 't=0 原文先上屏' 'c1'
-  Set-TestClock 100
-  [void](Store-Cue (New-TestCue 'c1' '第一句话' 'First' $false))
-  Assert-Displayed 't=100 译文开始流式输出' 'c1'
-  Set-TestClock 200
-  [void](Store-Cue (New-TestCue 'c1' '第一句话' 'First sentence.' $true))
-  Assert-Displayed 't=200 译文定稿' 'c1'
+  [void](Store-Cue (New-TestCue 'c1' '第一句' 'First.' $true))
+  Assert-Rows 't=0 第一句' 'c1'
 
-  Set-TestClock 400
-  [void](Store-Cue (New-TestCue 'c2' '第二句话' '' $false))
-  Assert-Displayed 't=400 下一句原文不抢占译文' 'c1'
+  Set-TestClock 1000
+  [void](Store-Cue (New-TestCue 'c2' '第二句' '' $false))
+  Assert-Rows 't=1000 当前句在最后一行' 'c1,c2'
 
-  Set-TestClock 900
-  [void](Store-Cue (New-TestCue 'c2' '第二句话' 'Second' $false))
-  Assert-Displayed 't=900 下一句译文未满阅读窗口' 'c1'
+  Set-TestClock 1200
+  [void](Store-Cue (New-TestCue 'c2' '第二句' 'Second.' $true))
+  Assert-Rows 't=1200 第二句定稿' 'c1,c2'
 
-  Set-TestClock 1500
-  [void](Store-Cue (New-TestCue 'c2' '第二句话' 'Second sentence.' $true))
-  Assert-Displayed 't=1500 阅读窗口未满仍保留' 'c1'
+  Set-TestClock 2000
+  [void](Store-Cue (New-TestCue 'c3' '第三句' 'Third.' $true))
+  Assert-Rows 't=2000 三行窗口' 'c1,c2,c3'
 
-  Set-TestClock 1950
-  Assert-Displayed 't=1950 阅读窗口满足后切换' 'c2'
+  Set-TestClock 2300
+  [void](Store-Cue (New-TestCue 'c4' '第四句' '' $false))
+  Assert-Rows 't=2300 第一句已读满，滚出窗口' 'c2,c3,c4'
 
-  Set-TestClock 2100
-  [void](Store-Cue (New-TestCue 'c3' '第三句话' '' $false))
-  Assert-Displayed 't=2100 第三句原文不抢占' 'c2'
+  Set-TestClock 2500
+  [void](Store-Cue (New-TestCue 'c5' '第五句' '' $false))
+  Assert-Rows 't=2500 第二句译文未满阅读时间，多保留一行' 'c2,c3,c4,c5'
 
-  Set-TestClock 9000
-  Assert-Displayed 't=9000 超时后跟随最新一段' 'c3'
+  Set-TestClock 4000
+  Assert-Rows 't=4000 阅读时间满足后收起多保留行' 'c3,c4,c5'
 
-  $script:cues.Clear()
-  $script:displayedId = ''
-  Set-TestClock 10000
-  [void](Store-Cue (New-TestCue 'd1' '原文一' '译文一' $false))
-  Assert-Displayed 't=10000 流式译文先上屏' 'd1'
+  Set-TestClock 4500
+  [void](Store-Cue (New-TestCue 'c6' '第六句' '' $false))
+  Assert-Rows 't=4500 最后一行为当前句' 'c4,c5,c6'
+
   Set-TestClock 11000
-  [void](Store-Cue (New-TestCue 'd1' '原文一' '译文一还在增长' $false))
-  Set-TestClock 12500
-  [void](Store-Cue (New-TestCue 'd2' '原文二' '译文二' $false))
-  Assert-Displayed 't=12500 流式输出中不切断' 'd1'
-  Set-TestClock 13000
-  [void](Store-Cue (New-TestCue 'd1' '原文一' '译文一还在增长。' $true))
-  Assert-Displayed 't=13000 定稿且阅读窗口满后切换' 'd2'
+  $cleared = Remove-IdleCues
+  if (-not $cleared) { $script:selfTestStatus = 1 }
+  Assert-Rows 't=11000 静音超时清空全部行' '<none>'
 
   Write-Output ('SUMMARY failures=' + $script:selfTestStatus)
 }
-
 function Run-Overlay {
   if ($ConfigBase64 -ne '') {
     try {
@@ -910,8 +871,8 @@ function Run-Overlay {
   [System.Windows.Threading.Dispatcher]::Run()
 }
 
-if ($SelfTestHold) {
-  Run-SelfTestHold
+if ($SelfTestRows -or $SelfTestHold) {
+  Run-SelfTestRows
   exit $script:selfTestStatus
 }
 
