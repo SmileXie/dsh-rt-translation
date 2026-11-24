@@ -16,7 +16,6 @@ function fakeController() {
     stop: async () => { calls.push('stop') },
     restart: async () => { calls.push('restart') },
     setLanguages: async (s: string, t: string) => { calls.push(`lang:${s}:${t}`) },
-    setMode: async (m: string) => { calls.push(`mode:${m}`) },
     status: () => 'status-ok',
     state: () => ({ phase: 'idle' }),
   }
@@ -52,7 +51,7 @@ test('/rt lang de en 返回错误', async () => {
   assert.equal(out.kind, 'error')
 })
 
-test('/rt mode foo 返回错误', async () => {
+test('已移除的 /rt mode 返回用法提示', async () => {
   const r = registry(); const c = fakeController()
   registerCommands(r as never, c as never)
   const out = await r.defs.get('rt')!.handler({ rawInput: ' mode foo' })

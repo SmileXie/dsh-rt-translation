@@ -32,6 +32,29 @@ export function parseSubtitlePatch(value: unknown): Partial<ResolvedSettings['su
   return Object.keys(patch).length > 0 ? patch : undefined
 }
 
+/** Validate a segmentation patch; values are milliseconds. */
+export function parseSegmentPatch(value: unknown): Partial<ResolvedSettings['segment']> | undefined {
+  let raw: unknown = value
+  if (typeof value === 'string') {
+    try { raw = JSON.parse(value) } catch { return undefined }
+  }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined
+  const record = raw as Record<string, unknown>
+  const patch: Partial<ResolvedSettings['segment']> = {}
+  if (typeof record.silenceMs === 'number' && Number.isFinite(record.silenceMs)) patch.silenceMs = Math.round(clamp(record.silenceMs, 100, 3000))
+  if (typeof record.maxSegmentMs === 'number' && Number.isFinite(record.maxSegmentMs)) patch.maxSegmentMs = Math.round(clamp(record.maxSegmentMs, 1000, 30_000))
+  return Object.keys(patch).length > 0 ? patch : undefined
+}
+
+/** Validate the auto-pause threshold; 0 disables it. */
+export function parseAutoPause(value: unknown): number | undefined {
+  const parsed = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && value.trim() !== '' ? Number(value) : Number.NaN
+  if (!Number.isFinite(parsed)) return undefined
+  return Math.round(clamp(parsed, 0, 3_600_000))
+}
+
 /** Execute one overlay action; unknown names and values are ignored. */
 export async function dispatchAction(
   op: OverlayOp,
@@ -64,14 +87,21 @@ export async function dispatchAction(
         await controller.setLanguages(state.source as SourceLanguage, op.value as Language)
         return
       }
-      case 'setMode':
-        if (op.value === 'meeting' || op.value === 'media') await controller.setMode(op.value)
-        return
       case 'setFontSize':
         if (typeof op.value === 'number' && Number.isFinite(op.value)) {
           await controller.setSubtitle({ fontSize: Math.round(clamp(op.value, 12, 96)) })
         }
         return
+      case 'setSegment': {
+        const patch = parseSegmentPatch(op.value)
+        if (patch !== undefined) await controller.setSegment(patch)
+        return
+      }
+      case 'setAutoPause': {
+        const afterMs = parseAutoPause(op.value)
+        if (afterMs !== undefined) await controller.setAutoPause(afterMs)
+        return
+      }
       case 'setSubtitle': {
         const patch = parseSubtitlePatch(op.value)
         if (patch !== undefined) await controller.setSubtitle(patch)

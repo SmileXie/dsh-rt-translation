@@ -2,16 +2,16 @@ import z from '@deepseek-ai/schemastery'
 
 export type Language = 'zh' | 'en' | 'ja' | 'ko' | 'yue'
 export type SourceLanguage = Language | 'auto'
-export type Preset = 'meeting' | 'media'
 
 export interface Config {
   sourceLanguage?: SourceLanguage
   targetLanguage?: Language
-  preset?: Preset
   capture?: { mode?: 'system' | 'system-exclude-self' | 'app'; appName?: string }
   stt?: { providerId?: string; partials?: boolean; partialIntervalMs?: number }
   translate?: { provider?: string; model?: string; contextTurns?: number; followAgentDefault?: boolean; glossary?: string[] }
   segment?: { silenceMs?: number; maxSegmentMs?: number; preRollMs?: number }
+  /** Pause capture after this much silence; 0 disables automatic pause. */
+  autoPauseAfterMs?: number
   subtitle?: {
     fontSize?: number
     /** Sentence rows on screen (2-5); the newest row is the sentence being spoken. */
@@ -26,8 +26,6 @@ export interface Config {
     holdMs?: number
     minReadMs?: number
   }
-  meeting?: { autoPauseAfterMs?: number }
-  media?: { glossary?: string[] }
   debug?: { dumpAudioDir?: string }
   ui?: { tray?: boolean }
   hotkeys?: { enabled?: boolean }
@@ -36,11 +34,11 @@ export interface Config {
 export interface ResolvedSettings {
   sourceLanguage: SourceLanguage
   targetLanguage: Language
-  preset: Preset
   capture: { mode: 'system' | 'system-exclude-self' | 'app'; appName: string }
   stt: { providerId: string; partials: boolean; partialIntervalMs: number }
   translate: { provider: string; model: string; contextTurns: number; followAgentDefault: boolean; glossary: string[] }
   segment: { silenceMs: number; maxSegmentMs: number; preRollMs: number }
+  autoPauseAfterMs: number
   subtitle: {
     fontSize: number
     /** Sentence rows on screen (2-5); the last one is the sentence being spoken. */
@@ -54,8 +52,6 @@ export interface ResolvedSettings {
     holdMs: number
     minReadMs: number
   }
-  meeting: { autoPauseAfterMs: number }
-  media: { glossary: string[] }
   debug: { dumpAudioDir: string }
   ui: { tray: boolean }
   hotkeys: { enabled: boolean }
@@ -67,7 +63,6 @@ const sourceLanguage = z.union(['auto', 'zh', 'en', 'ja', 'ko', 'yue'])
 export const Config = z.object({
   sourceLanguage,
   targetLanguage: language,
-  preset: z.union(['meeting', 'media']),
   capture: z.object({
     mode: z.union(['system', 'system-exclude-self', 'app']),
     appName: z.string(),
@@ -89,6 +84,7 @@ export const Config = z.object({
     maxSegmentMs: z.natural().min(1000).max(30000),
     preRollMs: z.natural().max(1000),
   }),
+  autoPauseAfterMs: z.natural().max(3600000),
   subtitle: z.object({
     fontSize: z.natural().min(12).max(96),
     maxLines: z.natural().min(2).max(5),
@@ -101,45 +97,18 @@ export const Config = z.object({
     holdMs: z.natural().max(60000),
     minReadMs: z.natural().max(30000),
   }),
-  meeting: z.object({ autoPauseAfterMs: z.natural().max(3600000) }),
-  media: z.object({ glossary: z.array(z.string()) }),
   debug: z.object({ dumpAudioDir: z.string() }),
   ui: z.object({ tray: z.boolean() }),
   hotkeys: z.object({ enabled: z.boolean() }),
 }).volatile()
 
-const presets = {
-  meeting: {
-    silenceMs: 280,
-    maxSegmentMs: 5000,
-    maxLines: 3,
-    holdMs: 6000,
-    minReadMs: 1800,
-    bilingual: true,
-    fontSize: 20,
-  },
-  media: {
-    silenceMs: 550,
-    maxSegmentMs: 7000,
-    maxLines: 3,
-    holdMs: 6000,
-    minReadMs: 1500,
-    bilingual: true,
-    fontSize: 20,
-  },
-} as const
-
 /**
- * Merge configuration with the selected preset and the plugin's fixed defaults.
- * Preset values fill anything the user did not set; explicit fields always win.
+ * Merge configuration with the plugin's fixed defaults. Explicit fields always win.
  */
 export function resolveConfig(input: Config): ResolvedSettings {
-  const preset: Preset = input.preset ?? 'meeting'
-  const base = presets[preset]
   return {
     sourceLanguage: input.sourceLanguage ?? 'auto',
     targetLanguage: input.targetLanguage ?? 'zh',
-    preset,
     capture: { mode: input.capture?.mode ?? 'system-exclude-self', appName: input.capture?.appName ?? '' },
     stt: {
       providerId: input.stt?.providerId ?? 'sensevoice-local',
@@ -154,24 +123,23 @@ export function resolveConfig(input: Config): ResolvedSettings {
       glossary: input.translate?.glossary ?? [],
     },
     segment: {
-      silenceMs: input.segment?.silenceMs ?? base.silenceMs,
-      maxSegmentMs: input.segment?.maxSegmentMs ?? base.maxSegmentMs,
+      silenceMs: input.segment?.silenceMs ?? 280,
+      maxSegmentMs: input.segment?.maxSegmentMs ?? 5000,
       preRollMs: input.segment?.preRollMs ?? 200,
     },
+    autoPauseAfterMs: input.autoPauseAfterMs ?? 120000,
     subtitle: {
-      fontSize: input.subtitle?.fontSize ?? base.fontSize,
-      maxLines: input.subtitle?.maxLines ?? base.maxLines,
+      fontSize: input.subtitle?.fontSize ?? 20,
+      maxLines: input.subtitle?.maxLines ?? 3,
       widthPercent: input.subtitle?.widthPercent ?? 78,
       marginPercent: input.subtitle?.marginPercent ?? 8,
       opacity: input.subtitle?.opacity ?? 0.72,
       background: input.subtitle?.background ?? true,
-      bilingual: input.subtitle?.bilingual ?? base.bilingual,
+      bilingual: input.subtitle?.bilingual ?? true,
       fontFamily: input.subtitle?.fontFamily ?? '',
-      holdMs: input.subtitle?.holdMs ?? base.holdMs,
-      minReadMs: input.subtitle?.minReadMs ?? base.minReadMs,
+      holdMs: input.subtitle?.holdMs ?? 6000,
+      minReadMs: input.subtitle?.minReadMs ?? 1800,
     },
-    meeting: { autoPauseAfterMs: input.meeting?.autoPauseAfterMs ?? 120000 },
-    media: { glossary: input.media?.glossary ?? [] },
     debug: { dumpAudioDir: input.debug?.dumpAudioDir ?? '' },
     ui: { tray: input.ui?.tray ?? true },
     hotkeys: { enabled: input.hotkeys?.enabled ?? true },

@@ -25,6 +25,8 @@ export interface PanelDeps {
 export interface PanelSnapshot {
   state: UiState
   subtitle: ResolvedSettings['subtitle']
+  segment: { silenceMs: number; maxSegmentMs: number }
+  autoPauseAfterMs: number
   capture: ResolvedSettings['capture']
   translate: { provider: string; model: string }
   stt: string
@@ -55,6 +57,8 @@ export function panelSnapshot(deps: PanelDeps): PanelSnapshot {
   return {
     state: deps.controller.state(),
     subtitle: { ...settings.subtitle },
+    segment: { silenceMs: settings.segment.silenceMs, maxSegmentMs: settings.segment.maxSegmentMs },
+    autoPauseAfterMs: settings.autoPauseAfterMs,
     capture: { ...settings.capture },
     translate: { provider: settings.translate.provider, model: settings.translate.model },
     stt: deps.sttStatus(),

@@ -34,6 +34,7 @@ window.__ModuleLoader__.load({
     const SOURCES = [['自动', 'auto'], ['中文', 'zh'], ['English', 'en'], ['日本語', 'ja'], ['한국어', 'ko'], ['粤语', 'yue']]
     const TARGETS = [['中文', 'zh'], ['English', 'en'], ['日本語', 'ja'], ['한국어', 'ko'], ['粤语', 'yue']]
     const READ_OPTIONS = [['0.8 秒', '800'], ['1.2 秒', '1200'], ['1.8 秒', '1800'], ['2.5 秒', '2500'], ['3.5 秒', '3500']]
+    const AUTO_PAUSE_OPTIONS = [['关闭', '0'], ['1 分钟', '60000'], ['2 分钟', '120000'], ['5 分钟', '300000'], ['10 分钟', '600000']]
 
     const S = {
       root: {
@@ -255,6 +256,8 @@ window.__ModuleLoader__.load({
 
       const state = snap.state
       const subtitle = snap.subtitle
+      const segment = snap.segment || { silenceMs: 280, maxSegmentMs: 5000 }
+      const autoPause = typeof snap.autoPauseAfterMs === 'number' ? snap.autoPauseAfterMs : 120000
       const running = state.phase === 'listening' || state.phase === 'preparing'
       const phaseLabel = PHASE_LABEL[state.phase] || state.phase
       const dotColor = PHASE_COLOR[state.phase] || PHASE_COLOR.idle
@@ -287,15 +290,13 @@ window.__ModuleLoader__.load({
           select(TARGETS, state.target, value => { void act('setTarget', value) }),
         ),
         h('div', { style: S.wrapRow },
-          h('span', { style: S.label }, '模式'),
-          h('button', {
-            style: state.preset === 'meeting' ? S.activeButton : S.button,
-            onClick: () => { void act('setMode', 'meeting') },
-          }, '会议'),
-          h('button', {
-            style: state.preset === 'media' ? S.activeButton : S.button,
-            onClick: () => { void act('setMode', 'media') },
-          }, '影视'),
+          stepper('静音', segment.silenceMs, 100, 3000, 50, value => { void act('setSegment', { silenceMs: value }) }),
+          stepper('单句', segment.maxSegmentMs, 1000, 15000, 500, value => { void act('setSegment', { maxSegmentMs: value }) }),
+        ),
+        h('div', { style: S.wrapRow },
+          h('span', { style: S.label }, '暂停'),
+          select(AUTO_PAUSE_OPTIONS, String(autoPause), value => { void act('setAutoPause', Number(value)) }),
+          h('span', { style: S.muted }, '静音后自动暂停'),
         ),
         h('div', { style: S.divider }),
         h('div', { style: S.wrapRow },

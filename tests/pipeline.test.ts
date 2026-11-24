@@ -18,7 +18,7 @@ async function feedSegment(p: Pipeline): Promise<void> {
 }
 
 function deps(over: Record<string, unknown> = {}) {
-  const settings = (over.settings as ReturnType<typeof resolveConfig>) ?? resolveConfig({ sourceLanguage: 'auto', targetLanguage: 'en', preset: 'meeting' })
+  const settings = (over.settings as ReturnType<typeof resolveConfig>) ?? resolveConfig({ sourceLanguage: 'auto', targetLanguage: 'en' })
   const subs = new SubtitleModel({ maxCues: 3, bilingual: settings.subtitle.bilingual, holdMs: settings.subtitle.holdMs })
   const d = {
     stt: { calls: 0, maxOutstanding: 0, prepare() {}, async ensureReady() {}, async transcribe() { d.stt.calls++; return { text: (over.transcript as string) ?? '你好', audioSeconds: 1, inferenceSeconds: 0.1 } }, status: () => '' },
@@ -98,7 +98,7 @@ test('final 到达后丢弃仍在识别的 partial', async () => {
 })
 
 test('翻译失败时回退显示原文与警告', async () => {
-  const d = deps({ settings: resolveConfig({ sourceLanguage: 'zh', targetLanguage: 'en', preset: 'media' }) })
+  const d = deps({ settings: resolveConfig({ sourceLanguage: 'zh', targetLanguage: 'en' }) })
   ;(d.translator as { translate: unknown }).translate = async function* () { throw new Error('down') }
   const p = new Pipeline(d as never)
 
@@ -110,7 +110,7 @@ test('翻译失败时回退显示原文与警告', async () => {
 })
 
 test('翻译连续失败 3 次触发 onFatal', async () => {
-  const d = deps({ settings: resolveConfig({ sourceLanguage: 'zh', targetLanguage: 'en', preset: 'media' }) })
+  const d = deps({ settings: resolveConfig({ sourceLanguage: 'zh', targetLanguage: 'en' }) })
   let fatal = 0
   d.onFatal = () => { fatal++ }
   ;(d.translator as { translate: unknown }).translate = async function* () { throw new Error('down') }

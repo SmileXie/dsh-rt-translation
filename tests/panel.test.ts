@@ -30,8 +30,9 @@ function fakeController() {
   const calls: Array<[string, unknown]> = []
   return {
     calls,
-    state: () => ({ running: false, phase: 'idle', source: 'auto', target: 'zh', preset: 'meeting', error: null }),
+    state: () => ({ running: false, phase: 'idle', source: 'auto', target: 'zh', error: null }),
     async setSubtitle(patch: unknown) { calls.push(['setSubtitle', patch]) },
+    async setSegment(patch: unknown) { calls.push(['setSegment', patch]) },
     prepareModel() { calls.push(['prepareModel', undefined]) },
     async start() { calls.push(['start', undefined]) },
   }
@@ -70,6 +71,8 @@ test('GET state 返回面板快照；POST action 驱动控制器', async () => {
   assert.equal(stateBody.ok, true)
   assert.equal(stateBody.value.state.phase, 'idle')
   assert.equal(stateBody.value.subtitle.maxLines, 3)
+  assert.equal(stateBody.value.segment.silenceMs, 280)
+  assert.equal(stateBody.value.autoPauseAfterMs, 120000)
 
   const postRes = fakeRes()
   const payload = { action: 'setSubtitle', value: { fontSize: 44 } }
@@ -81,6 +84,22 @@ test('GET state 返回面板快照；POST action 驱动控制器', async () => {
   await webServer.routes.get(PANEL_ACTION_PATH)!.handler(req as never, postRes as never)
   assert.equal(postRes.state.status, 200)
   assert.deepEqual(controller.calls, [['setSubtitle', { fontSize: 44 }]])
+})
+
+test('POST action setSegment 驱动分段设置', async () => {
+  const webServer = fakeWebServer()
+  const controller = fakeController()
+  registerPanelRoutes(webServer as never, () => authorized, deps(controller))
+  const res = fakeRes()
+  const payload = { action: 'setSegment', value: { silenceMs: 500 } }
+  const req = {
+    method: 'POST',
+    headers: {},
+    async *[Symbol.asyncIterator]() { yield Buffer.from(JSON.stringify(payload), 'utf8') },
+  }
+  await webServer.routes.get(PANEL_ACTION_PATH)!.handler(req as never, res as never)
+  assert.equal(res.state.status, 200)
+  assert.deepEqual(controller.calls, [['setSegment', { silenceMs: 500 }]])
 })
 
 test('未授权返回 401，方法不对返回 405，非法动作返回 400', async () => {

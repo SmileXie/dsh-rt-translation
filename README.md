@@ -1,6 +1,6 @@
 # dsh-rt-translation
 
-> **2026-11-24 更新**：控制条已集成到 DSH 窗口右下角（不再有独立悬浮控制条）；会议模式默认双语；字幕支持 2–5 行历史，最后一行为当前句；字幕窗**在收听时持续显示、静音时保留最近几行**，可用鼠标拖动，停止翻译后自动关闭；默认字号 20、行数 3，透明度可在 DSH 控制条里调。旧的 `/rt ui`、`Ctrl+Alt+H`、`ui.controlBar*` 与顶部/底部位置配置已移除。进度与续作事项见 [`docs/handoff-2026-11-24.md`](docs/handoff-2026-11-24.md)。
+> **2026-11-24 更新**：控制条已集成到 DSH 窗口右下角（不再有独立悬浮控制条）；默认双语；字幕支持 2–5 行历史，最后一行为当前句；字幕窗**在收听时持续显示、静音时保留最近几行**，可用鼠标拖动，停止翻译后自动关闭；默认字号 20、行数 3，透明度可在 DSH 控制条里调。已移除会议/影视模式与片名术语表（`/rt mode`、`/rt title`），静音切分、单句最长、自动暂停改为控制条直接设置。旧的 `/rt ui`、`Ctrl+Alt+H`、`ui.controlBar*` 与顶部/底部位置配置也已移除。进度与续作事项见 [`docs/handoff-2026-11-24.md`](docs/handoff-2026-11-24.md)。
 
 DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播放的声音，用本机 SenseVoice 识别中/英/日/韩/粤，再用 DSH 已配置的 LLM 流式翻译，最后把字幕画在置顶、可拖动的透明窗口里。
 
@@ -9,7 +9,7 @@ DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播
 - 源语言：自动、中文、English、日本語、한국어、粤语；目的语言：中/英/日/韩/粤。
 - 字幕支持 2–5 行滚动历史：最后一行为当前正在说的话，上方几行为最近几句话，每行都带原文与译文。
 - 字幕窗在收听时持续显示：静音时保留最近几行历史，不会自动消失；停止翻译后关闭。
-- 会议与影视两套预设，行数、双语、阅读时间、静音切分和自动暂停策略不同。
+- 单一配置（默认取原会议参数）：静音切分、单句最长、自动暂停，以及行数、双语、阅读时间都可在控制条调整。
 - DSH 窗口内的控制条、托盘左键、全局热键、斜杠命令、模型工具五种入口共用同一个控制器；托盘右键只有「退出」。
 - 字幕对屏幕共享**可见**（刻意不启用 `WDA_EXCLUDEFROMCAPTURE`），共享整个桌面或录屏时会出现在画面里。
 - 字幕窗置顶、可用鼠标拖动；控制条是 DSH 页面的一部分，不额外占用桌面窗口。
@@ -174,7 +174,7 @@ dsh --profile rt --no-open
 - 任务栏托盘显示插件图标（`assets/icon.jpeg` 缩放到 32×32），`powershell` overlay 进程开始常驻。
 - 托盘右键「退出」会关闭托盘与字幕窗；之后在 DSH 控制条点 ▶、按 `Ctrl+Alt+S` 或发 `/rt start` 会重新拉起 overlay 和托盘，不需要重启 DSH。
 - 字幕窗默认隐藏；DSH 窗口右下角会出现控制条（没有出现时刷新页面，或完全退出 DSH 后重开）。
-- 托盘右键只有「退出」；语言、模式、字号、行数、透明度等都在 DSH 控制条或命令里。
+- 托盘右键只有「退出」；语言、字号、行数、透明度、切分参数等都在 DSH 控制条或命令里。
 - 托盘与全局热键不依赖 DSH 网页窗口；控制条在 DSH 页面内，斜杠命令需要 DSH 会话。
 
 ## 使用
@@ -187,7 +187,7 @@ dsh --profile rt --no-open
 4. 如果还没有执行过 `/rt prepare`，这里会下载 SenseVoice 模型：状态点变黄，下载/加载完成后自动进入收听。
 5. 播放视频或加入会议，字幕出现在屏幕底部（默认字号 20、3 行）。
 
-默认显示 3 行（可 2–5）：最下面一行是当前正在说的话（先出原文，译文流式补上），上面几行是最近几句话，旧行逐渐变暗并在超出设定行数后滚出。会议与影视默认都显示「小字原文 + 大字译文」。字幕窗可以用鼠标直接拖动到你习惯的位置；停止说话后历史行会保留，停止翻译（⏸ / `/rt stop`）时字幕窗关闭。
+默认显示 3 行（可 2–5）：最下面一行是当前正在说的话（先出原文，译文流式补上），上面几行是最近几句话，旧行逐渐变暗并在超出设定行数后滚出。默认显示「小字原文 + 大字译文」。字幕窗可以用鼠标直接拖动到你习惯的位置；停止说话后历史行会保留，停止翻译（⏸ / `/rt stop`）时字幕窗关闭。
 
 ### 日常操作
 
@@ -195,7 +195,9 @@ dsh --profile rt --no-open
 | --- | --- |
 | 开始 / 停止 | DSH 窗口内控制条 ▶/⏸、托盘左键、`Ctrl+Alt+S`、`/rt start` / `/rt stop` |
 | 切换语言 | 控制条两个下拉框、`/rt lang auto en` |
-| 切换会议/影视 | 控制条「会议/影视」、`/rt mode meeting` / `/rt mode media` |
+| 静音切分 | 控制条「静音」 |
+| 单句最长 | 控制条「单句」 |
+| 自动暂停 | 控制条「暂停」 |
 | 调字号 | `Ctrl+Alt+↑` / `Ctrl+Alt+↓`，或控制条「字号」 |
 | 显示几行 | 控制条「行数」2–5 |
 | 移动字幕窗 | 直接用鼠标拖动 |
@@ -231,20 +233,17 @@ dsh plugin --profile rt remove dsh-rt-translation
 
 如需同时删除模型缓存，删除 `$env:USERPROFILE\.dsh\speech-to-text\sensevoice`。运行期设置保存在 `rt` profile 的 `cordis.patch.yml`，默认是 `$env:USERPROFILE\.dsh\profiles\rt\cordis.patch.yml`。
 
-## 会议模式与影视模式
+## 分段与自动暂停
 
-| 行为 | 会议 meeting | 影视 media |
-| --- | --- | --- |
-| 字幕行数（含当前句） | 3 行（可 2–5） | 3 行（可 2–5） |
-| 原文 | 原文 + 译文双语 | 原文 + 译文双语 |
-| 历史 | 上方保留最近 2 句 | 上方保留最近 2 句 |
-| 最短阅读 | 译文至少停留 1.8 s 再滚出 | 1.5 s |
-| 静音后 | 保留最近几行，不自动清空 | 保留最近几行，不自动清空 |
-| 静音切分 | 280 ms，偏快 | 550 ms，偏稳 |
-| 长静音 | 120 s 无语音自动暂停 | 不自动暂停 |
-| 术语表 | 不使用片名术语表 | 支持 `/rt title <name>` |
+不再区分「会议/影视」模式；默认值取原会议参数。以下参数都能在 DSH 控制条里直接调，改动会持久化到 profile：
 
-切换模式会立即把预设写入字幕样式；正在收听时会重连一次采集，让切分参数生效。
+| 设置 | 默认 | 范围 | 说明 |
+| --- | --- | --- | --- |
+| 静音切分 `silenceMs` | 280 ms | 100–3000 ms | 停顿多久认为一句话结束；越小越灵敏 |
+| 单句最长 `maxSegmentMs` | 5000 ms | 1000–30000 ms | 连续说话时强制切分的最长时长 |
+| 自动暂停 `autoPauseAfterMs` | 120 s | 0–3600 s（0 = 关闭） | 连续这么久没有语音就停止采集，按开始恢复 |
+
+字幕行数（3，可 2–5）、字号（20）、透明度、阅读时间和双语开关同样在控制条里。收听中修改切分会自动重连一次采集，立即生效。
 
 ## UI 与热键配置
 
@@ -258,6 +257,10 @@ dsh plugin --profile rt remove dsh-rt-translation
       tray: true                 # 是否创建托盘图标
     hotkeys:
       enabled: true              # 是否注册全局热键
+    segment:
+      silenceMs: 280             # 静音切分（ms）
+      maxSegmentMs: 5000         # 单句最长（ms）
+    autoPauseAfterMs: 120000     # 长静音自动暂停；0 = 关闭
     subtitle:
       maxLines: 3                # 显示几句（2–5）：最后一行为当前句
       fontSize: 20               # 字号
@@ -284,27 +287,12 @@ dsh plugin --profile rt remove dsh-rt-translation
 | `/rt start` / `/rt stop` | 开始 / 停止；stop 同时隐藏字幕（控制条保留在窗口内） |
 | `/rt status` | 状态、识别器、翻译路由、P50/P90 延迟、最近错误 |
 | `/rt lang <src> <tgt>` | 设置语言，如 `/rt lang auto en` |
-| `/rt mode meeting|media` | 切换预设 |
 | `/rt app <name>` / `/rt app off` | 只采集指定进程 / 恢复系统声音 |
 | `/rt model <provider> <model>` | 覆盖翻译模型 |
 | `/rt restart` | 重新连接默认音频设备 |
 | `/rt test <text>` | 不采音频，直接翻译并上屏 |
-| `/rt title <name>` / `/rt title off` | 加载 / 清除影视术语表 |
 
 模型也可以直接调用工具 `rt_translate`（`action=prepare|start|stop|status`，可选 `source`、`target`）。
-
-## 术语表
-
-文件路径：`$DSH_HOME/rt-translation/glossaries/<name>.json`
-
-```json
-[
-  { "from": "Transformer", "to": "Transformer" },
-  { "from": "注意力机制", "to": "attention mechanism" }
-]
-```
-
-加载后每一条翻译请求都会带上术语表；`/rt title off` 清空。
 
 ## 已知限制
 
@@ -341,7 +329,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File assets/overlay/overlay.ps1 -
 powershell -NoProfile -ExecutionPolicy Bypass -File assets/overlay/overlay.ps1 -SelfTest
 ```
 
-验证会议模式的双语行也能显示：
+验证双语文案也能显示：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File assets/overlay/overlay.ps1 -SelfTestMeeting
@@ -399,11 +387,11 @@ loopback-capture (PCM 48k stereo)
 - 系统回环采集（`system-exclude-self`）→ SenseVoice → LLM 翻译 → WPF 字幕全链路可用。
 - 中文语音 → 英文：4 个样本，P50 975 ms / P90 1417 ms；分段队列 0 ms、识别 73 ms、首字 834 ms。
 - 英译中：先显示实时原文，译文到达后同一行补上译文；上方几行保留最近几句，最后一行为当前句。
-- 会议与影视默认都显示小字原文 + 大字译文；行数均为 3（可 2–5）。控制条在 DSH 窗口右下角，含状态点、播放、源/目的语言、会议/影视、字号、行数、透明度与阅读时间。
+- 默认显示小字原文 + 大字译文；行数 3（可 2–5）。控制条在 DSH 窗口右下角，含状态点、播放、源/目的语言、静音切分、单句最长、自动暂停、字号、行数、透明度与阅读时间。
 - overlay 窗口置顶、透明、不进任务栏；可用鼠标直接拖动，拖动后会保持当前位置。
 - `/rt stop` 后 5 秒：DSH Node 进程 CPU 约 0.28%、overlay 约 0.11%（20 核占比）；overlay 进程保留，热键可再次开始。
 - 全局热键：`Ctrl+Alt+S` 从停止态到 `preparing → listening` 约 40 ms；`Ctrl+Alt+C` 清屏；`Ctrl+Alt+B` 切换双语。
-- `/rt lang`、`/rt mode` 等运行期设置持久化到 profile，重启 DSH 后保持。
+- `/rt lang`、`/rt model`、控制条里的切分/字幕设置都会持久化到 profile，重启 DSH 后保持。
 
 `/rt test <text>` 在翻译完成后才上屏，并常驻到下一次清屏。截图验证时请使用 DPI-aware 工具，否则在 200% 缩放下会截到字幕上方区域。
 

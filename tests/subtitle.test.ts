@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { SubtitleModel } from '../src/subtitle/state.ts'
 
-test('会议模式：译文到达前保留原文，随后追加译文', () => {
+test('单语模式：译文到达前保留原文，随后追加译文', () => {
   const m = new SubtitleModel({ maxCues: 2, bilingual: false, holdMs: 1000 })
   m.upsertSource('a', '你好', true)
   assert.deepEqual(m.snapshot()[0].lines, [{ kind: 'source', text: '你好', live: true }])
@@ -18,7 +18,7 @@ test('会议模式：译文到达前保留原文，随后追加译文', () => {
   ])
 })
 
-test('影视模式：保留原文并追加译文', () => {
+test('双语模式：保留原文并追加译文', () => {
   const m = new SubtitleModel({ maxCues: 3, bilingual: true, holdMs: 1000 })
   m.upsertSource('a', '你好', false)
   m.beginTranslation('a'); m.appendTranslation('a', 'Hello')

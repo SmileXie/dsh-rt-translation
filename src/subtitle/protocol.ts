@@ -4,7 +4,8 @@ import type { Cue } from './state.ts'
 
 export type ActionName =
   | 'toggle' | 'start' | 'stop' | 'prepare' | 'clear' | 'restart'
-  | 'setSource' | 'setTarget' | 'setMode' | 'setFontSize' | 'setSubtitle'
+  | 'setSource' | 'setTarget' | 'setFontSize' | 'setSubtitle'
+  | 'setSegment' | 'setAutoPause'
   | 'setApp' | 'quit'
 
 export interface UiState {
@@ -12,7 +13,6 @@ export interface UiState {
   phase: 'idle' | 'preparing' | 'listening' | 'paused' | 'error'
   source: string
   target: string
-  preset: string
   error: string | null
 }
 
@@ -51,14 +51,16 @@ export type OverlayOp =
 
 const ACTIONS = new Set<string>([
   'toggle', 'start', 'stop', 'prepare', 'clear', 'restart',
-  'setSource', 'setTarget', 'setMode', 'setFontSize', 'setSubtitle',
+  'setSource', 'setTarget', 'setFontSize', 'setSubtitle',
+  'setSegment', 'setAutoPause',
   'setApp', 'quit',
 ])
 
 /** Actions the in-window control panel may send; `quit` stays overlay-only. */
 export const PANEL_ACTIONS: ReadonlySet<ActionName> = new Set([
   'toggle', 'start', 'stop', 'prepare', 'clear', 'restart',
-  'setSource', 'setTarget', 'setMode', 'setFontSize', 'setSubtitle', 'setApp',
+  'setSource', 'setTarget', 'setFontSize', 'setSubtitle',
+  'setSegment', 'setAutoPause', 'setApp',
 ])
 
 /** Serialize one host instruction as a single NDJSON line. */

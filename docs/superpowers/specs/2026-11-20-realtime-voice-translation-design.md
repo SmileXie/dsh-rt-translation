@@ -555,6 +555,8 @@ dsh-rt-translation/
 - 托盘图标改用仓库内 `assets/icon.jpeg`（缩放到 32×32，`DestroyIcon` 释放句柄）。
 - 托盘「退出」改为可恢复的关闭：只结束 overlay/托盘进程，下次开始重新拉起；`dispose` 仍是插件卸载时的最终释放。
 - 托盘右键菜单只保留「退出」；左键切换开始/停止，其余配置在 DSH 控制条或命令中。
+- 取消会议/影视两套预设：默认值取原会议参数（静音 280 ms / 单句 5000 ms / 自动暂停 120 s），切分与自动暂停改为控制条直接设置（`setSegment` / `setAutoPause`）。
+- 删除片名术语表与 `/rt title`；`translate.glossary` 配置项保留。
 - 行模型、`minReadMs` 滚动保护不变。
 
 

@@ -112,9 +112,9 @@ test('setSubtitle 重建字幕配置并推送样式', async () => {
   assert.equal(styles.at(-1)?.fontSize, 40)
 })
 
-test('会议模式静音超过阈值自动暂停，start 可恢复', async () => {
+test('长静音超过阈值自动暂停，start 可恢复', async () => {
   const d = fake()
-  d.settingsValue = resolveConfig({ meeting: { autoPauseAfterMs: 1000 } })
+  d.settingsValue = resolveConfig({ autoPauseAfterMs: 1000 })
   let paused = 0
   let resumed = 0
   const pipeline = {
@@ -149,20 +149,36 @@ test('采集连续失败按次数进入 error，不会无限 1s 重试', async (
   assert.equal(d.opened, 4)
 })
 
-test('setMode 保留用户改过的字号，只替换仍是预设值的字段', async () => {
+test('setSegment 更新切分参数；收听中会重连采集', async () => {
   const d = fake()
   d.patchSettings = (async (patch: Partial<typeof d.settingsValue>) => {
     d.settingsValue = { ...d.settingsValue, ...patch }
   }) as never
   const c = new Controller(d as never)
 
-  await c.setSubtitle({ fontSize: 50 })
-  await c.setMode('media')
+  await c.setSegment({ silenceMs: 600 })
+  assert.equal(d.settingsValue.segment.silenceMs, 600)
+  assert.equal(d.opened, 0)
 
-  assert.equal(d.settingsValue.preset, 'media')
-  assert.equal(d.settingsValue.subtitle.fontSize, 50)
-  assert.equal(d.settingsValue.subtitle.maxLines, 3)
-  assert.equal(d.settingsValue.subtitle.bilingual, true)
+  await c.start()
+  const openedBefore = d.opened
+  await c.setSegment({ maxSegmentMs: 8000 })
+  assert.equal(d.settingsValue.segment.maxSegmentMs, 8000)
+  assert.equal(d.opened, openedBefore + 1)
+  assert.equal(c.state().phase, 'listening')
+})
+
+test('setAutoPause 更新长静音阈值', async () => {
+  const d = fake()
+  d.patchSettings = (async (patch: Partial<typeof d.settingsValue>) => {
+    d.settingsValue = { ...d.settingsValue, ...patch }
+  }) as never
+  const c = new Controller(d as never)
+
+  await c.setAutoPause(0)
+  assert.equal(d.settingsValue.autoPauseAfterMs, 0)
+  await c.setAutoPause(90_000)
+  assert.equal(d.settingsValue.autoPauseAfterMs, 90_000)
 })
 
 test('设置无法持久化时 status 明确标注', () => {

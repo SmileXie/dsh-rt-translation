@@ -1,5 +1,5 @@
 /** Plugin lifecycle: model preparation, capture ownership, and UI state. */
-import type { Language, Preset, ResolvedSettings, SourceLanguage } from './config.ts'
+import type { Language, ResolvedSettings, SourceLanguage } from './config.ts'
 import type { Pipeline, PipelineDeps } from './pipeline.ts'
 import type { SttClient } from './stt.ts'
 import type { Translator } from './translate.ts'
@@ -31,11 +31,6 @@ export interface ControllerDeps {
 
 const LANGUAGES = new Set(['zh', 'en', 'ja', 'ko', 'yue'])
 const BACKOFF = [1000, 2000, 5000]
-const PRESET_SUBTITLE = {
-  meeting: { fontSize: 20, maxLines: 3, holdMs: 6000, minReadMs: 1800, bilingual: true },
-  media: { fontSize: 20, maxLines: 3, holdMs: 6000, minReadMs: 1500, bilingual: true },
-} as const
-const PRESET_STYLE_KEYS = ['fontSize', 'maxLines', 'holdMs', 'minReadMs', 'bilingual'] as const
 
 export class Controller {
   private readonly deps: ControllerDeps
@@ -134,24 +129,18 @@ export class Controller {
     this.emit()
   }
 
-  /** Switch the meeting/media preset. */
-  async setMode(preset: Preset): Promise<void> {
-    if (preset !== 'meeting' && preset !== 'media') throw new Error(`不支持的模式: ${preset}`)
-    const settings = this.deps.settings()
-    const previous = PRESET_SUBTITLE[settings.preset]
-    const next = PRESET_SUBTITLE[preset]
-    const changes: Partial<ResolvedSettings['subtitle']> = {}
-    for (const key of PRESET_STYLE_KEYS) {
-      if (settings.subtitle[key] === previous[key]) Object.assign(changes, { [key]: next[key] })
-    }
-    const subtitle = { ...settings.subtitle, ...changes }
-    await this.deps.patchSettings({ preset, subtitle })
-    this.applySubtitle()
+  /** Update segmentation; rebuilding the running pipeline applies it immediately. */
+  async setSegment(patch: Partial<ResolvedSettings['segment']>): Promise<void> {
+    const segment = { ...this.deps.settings().segment, ...patch }
+    await this.deps.patchSettings({ segment })
     if (this.phase === 'listening') await this.restart()
-    else {
-      if (this.phase === 'paused') await this.resetPipeline()
-      this.emit()
-    }
+    else this.emit()
+  }
+
+  /** Update the long-silence auto-pause threshold (0 disables it). */
+  async setAutoPause(afterMs: number): Promise<void> {
+    await this.deps.patchSettings({ autoPauseAfterMs: Math.max(0, Math.round(afterMs)) })
+    this.emit()
   }
 
   /** Apply a partial subtitle style change from the settings panel or hotkeys. */
@@ -177,13 +166,6 @@ export class Controller {
     this.emit()
   }
 
-  /** Replace the active glossary entries. */
-  async setGlossary(entries: string[]): Promise<void> {
-    const settings = this.deps.settings()
-    await this.deps.patchSettings({ translate: { ...settings.translate, glossary: entries } })
-    this.emit()
-  }
-
   /** Clear visible subtitles without stopping capture. */
   clear(): void {
     this.deps.subtitles.clear()
@@ -202,7 +184,7 @@ export class Controller {
       source: settings.sourceLanguage,
       target: settings.targetLanguage,
       context: [],
-      glossary: [...settings.translate.glossary, ...settings.media.glossary],
+      glossary: [...settings.translate.glossary],
       signal: AbortSignal.timeout(30_000),
     })) { translated += delta; this.deps.subtitles.appendTranslation(id, delta) }
     this.deps.subtitles.finishCue(id, Date.now())
@@ -213,10 +195,11 @@ export class Controller {
   status(): string {
     const settings = this.deps.settings()
     const stats = this.pipeline?.stats() ?? { count: 0, p50: 0, p90: 0, last: 0 }
+    const autoPause = settings.autoPauseAfterMs > 0 ? `${Math.round(settings.autoPauseAfterMs / 1000)}s` : '关闭'
     return [
       `状态: ${this.phase}`,
       `语言: ${settings.sourceLanguage} → ${settings.targetLanguage}`,
-      `模式: ${settings.preset}`,
+      `切分: 静音 ${settings.segment.silenceMs}ms / 最长 ${settings.segment.maxSegmentMs}ms / 自动暂停 ${autoPause}`,
       `识别: ${this.deps.stt.status()}`,
       `翻译: ${settings.translate.provider || '跟随默认'} / ${settings.translate.model || '自动'}`,
       ...this.deps.persistence?.() === false ? ['持久化: 未写入 profile（仅内存）'] : [],
@@ -233,7 +216,6 @@ export class Controller {
       phase: this.phase,
       source: settings.sourceLanguage,
       target: settings.targetLanguage,
-      preset: settings.preset,
       error: this.error,
     }
   }
@@ -272,13 +254,13 @@ export class Controller {
     }
   }
 
-  /** Meeting-mode idle check, exposed so tests can drive it without timers. */
+  /** Long-silence auto-pause check, exposed so tests can drive it without timers. */
   async _checkIdleForTest(now = Date.now()): Promise<void> {
     if (now - this.lastIdleCheck < 5000) return
     this.lastIdleCheck = now
     const settings = this.deps.settings()
-    if (this.phase !== 'listening' || settings.preset !== 'meeting') return
-    const threshold = settings.meeting.autoPauseAfterMs
+    if (this.phase !== 'listening') return
+    const threshold = settings.autoPauseAfterMs
     const pipeline = this.pipeline
     if (threshold <= 0 || pipeline === undefined) return
     const last = pipeline.lastSpeechAt()
@@ -288,7 +270,7 @@ export class Controller {
     this.source?.close()
     this.source = undefined
     this.stopMonitor()
-    this.deps.log(`meeting idle ${now - baseline}ms; paused`)
+    this.deps.log(`idle ${now - baseline}ms; paused`)
     this.setPhase('paused')
   }
 
@@ -329,13 +311,7 @@ export class Controller {
     this.monitor = undefined
   }
 
-  private async resetPipeline(): Promise<void> {
-    const pipeline = this.pipeline
-    this.pipeline = undefined
-    await pipeline?.stop()
-  }
-
-  /** Resume from meeting idle pause; capture was closed on pause, so reopen it. */
+  /** Resume from the long-silence auto-pause; capture was closed, so reopen it. */
   private resumeFromPause(): void {
     if (this.source === undefined) {
       try { this.openCapture() } catch (error) { this.fail(error); return }
