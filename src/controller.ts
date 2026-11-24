@@ -90,9 +90,11 @@ export class Controller {
     this.deps.stt.prepare()
   }
 
-  /** Stop capture and clear the screen; the overlay process stays resident. */
+  /** Stop capture and close the subtitle window; the overlay process stays resident. */
   async stop(): Promise<void> {
     await this.halt()
+    this.deps.subtitles.clear()
+    this.deps.renderer.clear()
   }
 
   async restart(): Promise<void> {

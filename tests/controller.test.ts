@@ -9,13 +9,15 @@ function fake(over: { prepareFails?: boolean } = {}) {
     order,
     opened: 0,
     closed: 0,
+    cleared: 0,
+    subtitlesCleared: 0,
     settingsValue: resolveConfig({}),
     patchSettings: async () => {},
     settings: () => d.settingsValue,
     stt: { prepare() {}, async ensureReady() { order.push('prepare'); if (over.prepareFails) throw new Error('boom') }, async transcribe() { return { text: 'x', audioSeconds: 1, inferenceSeconds: 0 } }, status: () => '' },
     translator: { async *translate() {}, async route() { return { provider: 'p', model: 'm' } } },
-    renderer: { start: async () => {}, cue() {}, style() {}, ui() {}, clear() {}, onAction() {}, dispose: async () => {} },
-    subtitles: { upsertSource() {}, beginTranslation() {}, appendTranslation() {}, finishCue() {}, clear() {}, configure() {}, tick() {}, snapshot: () => [] },
+    renderer: { start: async () => {}, cue() {}, style() {}, ui() {}, clear() { d.cleared++ }, onAction() {}, dispose: async () => {} },
+    subtitles: { upsertSource() {}, beginTranslation() {}, appendTranslation() {}, finishCue() {}, clear() { d.subtitlesCleared++ }, configure() {}, tick() {}, snapshot: () => [] },
     capture: { open() { d.opened++; order.push('open'); return { close() { d.closed++ }, lastError: null as string | null } } },
     makePipeline: () => ({ feed() {}, pause() {}, resume() {}, flush: async () => {}, stop: async () => {}, stats: () => ({ count: 0, p50: 0, p90: 0, last: 0 }), lastSpeechAt: () => 0 }),
     log: () => {},
@@ -65,11 +67,13 @@ test('准备模型期间 stop 后不会打开采集', async () => {
   assert.equal(d.opened, 0)
 })
 
-test('stop 关闭采集并回到 idle', async () => {
+test('stop 关闭采集、关闭字幕窗并回到 idle', async () => {
   const d = fake(); const c = new Controller(d as never)
   await c.start(); await c.stop()
   assert.equal(d.closed, 1)
   assert.equal(c.state().phase, 'idle')
+  assert.equal(d.cleared, 1)
+  assert.equal(d.subtitlesCleared, 1)
 })
 
 test('setSubtitle 重建字幕配置并推送样式', async () => {

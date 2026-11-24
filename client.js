@@ -300,10 +300,10 @@ window.__ModuleLoader__.load({
         h('div', { style: S.divider }),
         h('div', { style: S.wrapRow },
           stepper('字号', subtitle.fontSize, 12, 96, 2, value => { void act('setFontSize', value) }),
-          stepper('行数（句）', subtitle.maxLines, 2, 5, 1, value => { void act('setSubtitle', { maxLines: value }) }),
+          stepper('行数', subtitle.maxLines, 2, 5, 1, value => { void act('setSubtitle', { maxLines: value }) }),
         ),
         h('div', { style: S.wrapRow },
-          h('span', { style: S.label }, '背景'),
+          h('span', { style: S.label }, '透明度'),
           h('input', {
             type: 'range',
             min: 0.2,
