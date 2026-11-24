@@ -85,8 +85,17 @@ export class WindowsWpfRenderer implements SubtitleRenderer {
 
   onAction(cb: (op: OverlayOp) => void): void { this.listeners.add(cb) }
 
+  /** Close the overlay process (tray + subtitles) but allow a later start to respawn it. */
+  async close(): Promise<void> {
+    await this.terminate()
+  }
+
   async dispose(): Promise<void> {
     this.disposed = true
+    await this.terminate()
+  }
+
+  private async terminate(): Promise<void> {
     const child = this.child
     if (child === undefined) return
     try { child.stdin.write(encodeOp({ op: 'shutdown' })) } catch { /* already gone */ }

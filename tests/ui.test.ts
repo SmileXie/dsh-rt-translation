@@ -16,13 +16,13 @@ test('dispatchAction 把字号动作转成字幕设置', async () => {
   assert.deepEqual(patches, [{ fontSize: 96 }])
 })
 
-test('dispatchAction 空应用名恢复系统声音，quit 释放控制器', async () => {
+test('dispatchAction 空应用名恢复系统声音，quit 关闭托盘与字幕窗', async () => {
   const calls: string[] = []
   const controller = {
     async setCapture(mode: string, name: string) { calls.push(`capture:${mode}:${name}`) },
-    async dispose() { calls.push('dispose') },
+    async quit() { calls.push('quit') },
   }
   await dispatchAction({ op: 'action', name: 'setApp', value: '' }, controller as never)
   await dispatchAction({ op: 'action', name: 'quit' }, controller as never)
-  assert.deepEqual(calls, ['capture:system-exclude-self:', 'dispose'])
+  assert.deepEqual(calls, ['capture:system-exclude-self:', 'quit'])
 })

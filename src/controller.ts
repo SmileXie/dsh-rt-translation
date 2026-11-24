@@ -67,6 +67,8 @@ export class Controller {
     const generation = ++this.startGeneration
     this.setPhase('preparing')
     try {
+      // The tray "quit" action closes the overlay; starting again respawns it.
+      await this.deps.renderer.start()
       await this.deps.stt.ensureReady()
     } catch (error) {
       if (generation === this.startGeneration) this.fail(error)
@@ -95,6 +97,16 @@ export class Controller {
     await this.halt()
     this.deps.subtitles.clear()
     this.deps.renderer.clear()
+  }
+
+  /**
+   * Tray "quit": close the overlay and tray without disposing the plugin, so the
+   * control panel (or `/rt start`) can spawn them again on the next start.
+   */
+  async quit(): Promise<void> {
+    await this.stop()
+    await this.deps.renderer.close()
+    this.setPhase('idle')
   }
 
   async restart(): Promise<void> {

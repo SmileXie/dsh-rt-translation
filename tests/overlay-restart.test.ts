@@ -66,3 +66,27 @@ test('ready 前以 0 退出会 reject 而不是永远挂起', async () => {
   fake.children[0].exit(0)
   await assert.rejects(started, /before ready/)
 })
+
+test('close 后可再次 start；dispose 后 start 不再拉起', async () => {
+  const fake = makeSpawn()
+  const r = new WindowsWpfRenderer({ scriptPath: 'overlay.ps1', style, spawn: fake.spawn as never })
+  let started = r.start()
+  fake.children[0].emit('{"op":"ready"}')
+  await started
+
+  const closed = r.close()
+  fake.children[0].exit(0)
+  await closed
+
+  started = r.start()
+  assert.equal(fake.children.length, 2)
+  assert.ok(fake.children[1].written[0].includes('"op":"style"'))
+  fake.children[1].emit('{"op":"ready"}')
+  await started
+
+  const disposed = r.dispose()
+  fake.children[1].exit(0)
+  await disposed
+  await r.start()
+  assert.equal(fake.children.length, 2)
+})

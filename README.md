@@ -172,6 +172,7 @@ dsh --profile rt --no-open
 启动成功后：
 
 - 任务栏托盘显示插件图标（`assets/icon.jpeg` 缩放到 32×32），`powershell` overlay 进程开始常驻。
+- 托盘右键「退出」会关闭托盘与字幕窗；之后在 DSH 控制条点 ▶、按 `Ctrl+Alt+S` 或发 `/rt start` 会重新拉起 overlay 和托盘，不需要重启 DSH。
 - 字幕窗默认隐藏；DSH 窗口右下角会出现控制条（没有出现时刷新页面，或完全退出 DSH 后重开）。
 - 托盘与全局热键不依赖 DSH 网页窗口；控制条在 DSH 页面内，斜杠命令需要 DSH 会话。
 

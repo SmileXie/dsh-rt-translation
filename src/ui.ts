@@ -83,7 +83,7 @@ export async function dispatchAction(
           else await controller.setCapture('app', op.value.trim())
         }
         return
-      case 'quit': await controller.dispose(); return
+      case 'quit': await controller.quit(); return
     }
   } catch (error) {
     log(`action ${op.name} failed`, error)

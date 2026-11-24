@@ -553,6 +553,7 @@ dsh-rt-translation/
 - 默认字号 20、行数 3（会议/影视一致）。
 - 控制条新增背景透明度滑块（`subtitle.opacity`，20%–100%）。
 - 托盘图标改用仓库内 `assets/icon.jpeg`（缩放到 32×32，`DestroyIcon` 释放句柄）。
+- 托盘「退出」改为可恢复的关闭：只结束 overlay/托盘进程，下次开始重新拉起；`dispose` 仍是插件卸载时的最终释放。
 - 行模型、`minReadMs` 滚动保护不变。
 
 
