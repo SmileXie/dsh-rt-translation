@@ -475,127 +475,12 @@ function Initialize-Tray {
     if ($eventArgs.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Send-Action 'toggle' }
   })
 
+  # The tray menu is an exit control only; everything else lives in the DSH panel.
   $menu = New-Object System.Windows.Forms.ContextMenuStrip
-
-  $startItem = New-Object System.Windows.Forms.ToolStripMenuItem '开始翻译'
-  $startItem.add_Click({ Send-Action 'start' })
-  [void]$menu.Items.Add($startItem)
-
-  $stopItem = New-Object System.Windows.Forms.ToolStripMenuItem '停止'
-  $stopItem.add_Click({ Send-Action 'stop' })
-  [void]$menu.Items.Add($stopItem)
-
-  [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
-
-  $modeMenu = New-Object System.Windows.Forms.ToolStripMenuItem '模式'
-  $meetingItem = New-Object System.Windows.Forms.ToolStripMenuItem '会议'
-  $meetingItem.add_Click({ Send-Action 'setMode' 'meeting' })
-  [void]$modeMenu.DropDownItems.Add($meetingItem)
-  $mediaItem = New-Object System.Windows.Forms.ToolStripMenuItem '影视'
-  $mediaItem.add_Click({ Send-Action 'setMode' 'media' })
-  [void]$modeMenu.DropDownItems.Add($mediaItem)
-  [void]$menu.Items.Add($modeMenu)
-
-  $sourceMenu = New-Object System.Windows.Forms.ToolStripMenuItem '源语言'
-  foreach ($pair in @(@('自动', 'auto'), @('中文', 'zh'), @('English', 'en'), @('日本語', 'ja'), @('한국어', 'ko'), @('粤语', 'yue'))) {
-    $item = New-Object System.Windows.Forms.ToolStripMenuItem $pair[0]
-    $language = $pair[1]
-    $item.add_Click({ Send-Action 'setSource' $language }.GetNewClosure())
-    [void]$sourceMenu.DropDownItems.Add($item)
-  }
-  [void]$menu.Items.Add($sourceMenu)
-
-  $targetMenu = New-Object System.Windows.Forms.ToolStripMenuItem '目的语言'
-  foreach ($pair in @(@('中文', 'zh'), @('English', 'en'), @('日本語', 'ja'), @('한국어', 'ko'), @('粤语', 'yue'))) {
-    $item = New-Object System.Windows.Forms.ToolStripMenuItem $pair[0]
-    $language = $pair[1]
-    $item.add_Click({ Send-Action 'setTarget' $language }.GetNewClosure())
-    [void]$targetMenu.DropDownItems.Add($item)
-  }
-  [void]$menu.Items.Add($targetMenu)
-
-  [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
-
-  $appItem = New-Object System.Windows.Forms.ToolStripMenuItem '只采集指定应用…'
-  $appItem.add_Click({ Show-AppDialog })
-  [void]$menu.Items.Add($appItem)
-
-  $systemItem = New-Object System.Windows.Forms.ToolStripMenuItem '恢复系统声音'
-  $systemItem.add_Click({ Send-Action 'setApp' '' })
-  [void]$menu.Items.Add($systemItem)
-
-  $restartItem = New-Object System.Windows.Forms.ToolStripMenuItem '重新连接音频'
-  $restartItem.add_Click({ Send-Action 'restart' })
-  [void]$menu.Items.Add($restartItem)
-
-  [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
-
-  $fontUpItem = New-Object System.Windows.Forms.ToolStripMenuItem '字号 +'
-  $fontUpItem.add_Click({ Send-Action 'setFontSize' ([int]$script:style.fontSize + 2) })
-  [void]$menu.Items.Add($fontUpItem)
-
-  $fontDownItem = New-Object System.Windows.Forms.ToolStripMenuItem '字号 -'
-  $fontDownItem.add_Click({ Send-Action 'setFontSize' ([int]$script:style.fontSize - 2) })
-  [void]$menu.Items.Add($fontDownItem)
-
-  $clearItem = New-Object System.Windows.Forms.ToolStripMenuItem '清空字幕'
-  $clearItem.add_Click({ Send-Action 'clear' })
-  [void]$menu.Items.Add($clearItem)
-
-  [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
-
   $quitItem = New-Object System.Windows.Forms.ToolStripMenuItem '退出'
   $quitItem.add_Click({ Send-Action 'quit'; Shutdown-Overlay })
   [void]$menu.Items.Add($quitItem)
-
   $script:notify.ContextMenuStrip = $menu
-}
-
-function Show-AppDialog {
-  $dialog = New-Object System.Windows.Window
-  $dialog.Title = '只采集指定应用'
-  $dialog.Width = 380
-  $dialog.Height = 180
-  $dialog.Topmost = $true
-  $dialog.ShowInTaskbar = $false
-  $dialog.ResizeMode = [System.Windows.ResizeMode]::NoResize
-  $dialog.WindowStartupLocation = [System.Windows.WindowStartupLocation]::CenterScreen
-
-  $panel = New-Object System.Windows.Controls.StackPanel
-  $panel.Margin = New-Object System.Windows.Thickness 14
-  $hint = New-Object System.Windows.Controls.TextBlock
-  $hint.Text = '输入进程名（例如 chrome.exe）。留空并确定可恢复系统声音。'
-  $hint.TextWrapping = [System.Windows.TextWrapping]::Wrap
-  [void]$panel.Children.Add($hint)
-
-  $box = New-Object System.Windows.Controls.TextBox
-  $box.Margin = New-Object System.Windows.Thickness 0, 10, 0, 10
-  [void]$panel.Children.Add($box)
-
-  $buttons = New-Object System.Windows.Controls.StackPanel
-  $buttons.Orientation = [System.Windows.Controls.Orientation]::Horizontal
-  $buttons.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Right
-
-  $ok = New-Object System.Windows.Controls.Button
-  $ok.Content = '确定'
-  $ok.Width = 70
-  $ok.Margin = New-Object System.Windows.Thickness 0, 0, 8, 0
-  $ok.add_Click({
-    $name = ([string]$box.Text).Trim()
-    Send-Action 'setApp' $name
-    $dialog.Close()
-  })
-  [void]$buttons.Children.Add($ok)
-
-  $cancel = New-Object System.Windows.Controls.Button
-  $cancel.Content = '取消'
-  $cancel.Width = 70
-  $cancel.add_Click({ $dialog.Close() })
-  [void]$buttons.Children.Add($cancel)
-
-  [void]$panel.Children.Add($buttons)
-  $dialog.Content = $panel
-  [void]$dialog.ShowDialog()
 }
 
 function Convert-Hotkey([string]$text) {

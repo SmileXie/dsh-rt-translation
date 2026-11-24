@@ -554,6 +554,7 @@ dsh-rt-translation/
 - 控制条新增背景透明度滑块（`subtitle.opacity`，20%–100%）。
 - 托盘图标改用仓库内 `assets/icon.jpeg`（缩放到 32×32，`DestroyIcon` 释放句柄）。
 - 托盘「退出」改为可恢复的关闭：只结束 overlay/托盘进程，下次开始重新拉起；`dispose` 仍是插件卸载时的最终释放。
+- 托盘右键菜单只保留「退出」；左键切换开始/停止，其余配置在 DSH 控制条或命令中。
 - 行模型、`minReadMs` 滚动保护不变。
 
 
