@@ -68,7 +68,7 @@ window.__ModuleLoader__.load({
       muted: { color: 'var(--dsw-alias-label-secondary)', whiteSpace: 'nowrap' },
       panel: {
         pointerEvents: 'auto',
-        width: 318,
+        width: 348,
         padding: 12,
         borderRadius: 12,
         background: 'var(--dsw-alias-bg-layer-1)',
@@ -141,7 +141,6 @@ window.__ModuleLoader__.load({
       divider: { height: 1, background: 'var(--dsw-alias-border-l2)', margin: '2px 0' },
       footer: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 11, wordBreak: 'break-all' },
       error: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 11, wordBreak: 'break-all' },
-      hint: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 11 },
     }
 
     function labelOf(pairs, value) {
@@ -187,11 +186,14 @@ window.__ModuleLoader__.load({
       }, pairs.map(([label, key]) => h('option', { key, value: key }, label)))
     }
 
-    function stepper(label, value, min, max, step, onChange) {
+    function stepper(label, value, min, max, step, onChange, format) {
+      const numberStyle = format === undefined
+        ? S.number
+        : { ...S.number, minWidth: 58, whiteSpace: 'nowrap' }
       return h('div', { style: { ...S.row, gap: 4 } },
         h('span', { style: S.label }, label),
         h('button', { style: S.smallButton, title: '减少', onClick: () => onChange(Math.max(min, value - step)) }, '−'),
-        h('span', { style: S.number }, String(value)),
+        h('span', { style: numberStyle }, format === undefined ? String(value) : format(value)),
         h('button', { style: S.smallButton, title: '增加', onClick: () => onChange(Math.min(max, value + step)) }, '+'),
       )
     }
@@ -290,8 +292,9 @@ window.__ModuleLoader__.load({
           select(TARGETS, state.target, value => { void act('setTarget', value) }),
         ),
         h('div', { style: S.wrapRow },
-          stepper('静音', segment.silenceMs, 100, 3000, 50, value => { void act('setSegment', { silenceMs: value }) }),
-          stepper('单句', segment.maxSegmentMs, 1000, 15000, 500, value => { void act('setSegment', { maxSegmentMs: value }) }),
+          stepper('静音', segment.silenceMs, 100, 3000, 50, value => { void act('setSegment', { silenceMs: value }) }, value => `${value} ms`),
+          h('span', { style: { width: 10, flex: '0 0 auto' } }),
+          stepper('单句', segment.maxSegmentMs, 1000, 15000, 500, value => { void act('setSegment', { maxSegmentMs: value }) }, value => `${(value / 1000).toFixed(1)} s`),
         ),
         h('div', { style: S.wrapRow },
           h('span', { style: S.label }, '暂停'),
@@ -301,6 +304,7 @@ window.__ModuleLoader__.load({
         h('div', { style: S.divider }),
         h('div', { style: S.wrapRow },
           stepper('字号', subtitle.fontSize, 12, 96, 2, value => { void act('setFontSize', value) }),
+          h('span', { style: { width: 10, flex: '0 0 auto' } }),
           stepper('行数', subtitle.maxLines, 2, 5, 1, value => { void act('setSubtitle', { maxLines: value }) }),
         ),
         h('div', { style: S.wrapRow },
@@ -334,7 +338,6 @@ window.__ModuleLoader__.load({
           h('button', { style: S.button, onClick: () => { void act('restart') } }, '重连音频'),
           h('button', { style: S.button, onClick: () => { void act('prepare') } }, '准备模型'),
         ),
-        h('div', { style: S.hint }, '字幕窗可直接拖动；屏幕共享与录屏时会被看到。'),
         h('div', { style: S.footer },
           `识别: ${snap.stt}`,
           h('br'),
