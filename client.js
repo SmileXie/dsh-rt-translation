@@ -33,7 +33,6 @@ window.__ModuleLoader__.load({
     }
     const SOURCES = [['自动', 'auto'], ['中文', 'zh'], ['English', 'en'], ['日本語', 'ja'], ['한국어', 'ko'], ['粤语', 'yue']]
     const TARGETS = [['中文', 'zh'], ['English', 'en'], ['日本語', 'ja'], ['한국어', 'ko'], ['粤语', 'yue']]
-    const HOLD_OPTIONS = [['3 秒', '3000'], ['4 秒', '4000'], ['5 秒', '5000'], ['6 秒', '6000'], ['8 秒', '8000'], ['12 秒', '12000']]
     const READ_OPTIONS = [['0.8 秒', '800'], ['1.2 秒', '1200'], ['1.8 秒', '1800'], ['2.5 秒', '2500'], ['3.5 秒', '3500']]
 
     const S = {
@@ -304,16 +303,18 @@ window.__ModuleLoader__.load({
           stepper('行数（句）', subtitle.maxLines, 2, 5, 1, value => { void act('setSubtitle', { maxLines: value }) }),
         ),
         h('div', { style: S.wrapRow },
-          h('span', { style: S.label }, '位置'),
-          h('button', {
-            style: subtitle.position === 'bottom' ? S.activeButton : S.button,
-            onClick: () => { void act('setSubtitle', { position: 'bottom' }) },
-          }, '底部'),
-          h('button', {
-            style: subtitle.position === 'top' ? S.activeButton : S.button,
-            onClick: () => { void act('setSubtitle', { position: 'top' }) },
-          }, '顶部'),
-          h('label', { style: { ...S.row, marginLeft: 6 } },
+          h('span', { style: S.label }, '背景'),
+          h('input', {
+            type: 'range',
+            min: 0.2,
+            max: 1,
+            step: 0.01,
+            value: subtitle.opacity,
+            style: { width: 88, accentColor: 'var(--dsw-alias-brand-primary)' },
+            onChange: event => { void act('setSubtitle', { opacity: Number(event.target.value) }) },
+          }),
+          h('span', { style: S.muted }, `${Math.round(subtitle.opacity * 100)}%`),
+          h('label', { style: { ...S.row, marginLeft: 8 } },
             h('input', {
               type: 'checkbox',
               checked: subtitle.bilingual === true,
@@ -323,8 +324,6 @@ window.__ModuleLoader__.load({
           ),
         ),
         h('div', { style: S.wrapRow },
-          h('span', { style: S.label }, '停留'),
-          select(HOLD_OPTIONS, subtitle.holdMs, value => { void act('setSubtitle', { holdMs: Number(value) }) }),
           h('span', { style: S.label }, '阅读'),
           select(READ_OPTIONS, subtitle.minReadMs, value => { void act('setSubtitle', { minReadMs: Number(value) }) }),
         ),
@@ -334,7 +333,7 @@ window.__ModuleLoader__.load({
           h('button', { style: S.button, onClick: () => { void act('restart') } }, '重连音频'),
           h('button', { style: S.button, onClick: () => { void act('prepare') } }, '准备模型'),
         ),
-        h('div', { style: S.hint }, '字幕画在屏幕置顶叠加窗；屏幕共享与录屏时会被看到。'),
+        h('div', { style: S.hint }, '字幕窗可直接拖动；屏幕共享与录屏时会被看到。'),
         h('div', { style: S.footer },
           `识别: ${snap.stt}`,
           h('br'),

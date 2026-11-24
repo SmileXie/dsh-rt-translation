@@ -141,7 +141,7 @@ test('setMode 保留用户改过的字号，只替换仍是预设值的字段', 
 
   assert.equal(d.settingsValue.preset, 'media')
   assert.equal(d.settingsValue.subtitle.fontSize, 50)
-  assert.equal(d.settingsValue.subtitle.maxLines, 4)
+  assert.equal(d.settingsValue.subtitle.maxLines, 3)
   assert.equal(d.settingsValue.subtitle.bilingual, true)
 })
 

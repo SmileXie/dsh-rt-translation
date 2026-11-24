@@ -4,7 +4,7 @@ import { dispatchAction, parseSubtitlePatch } from '../src/ui.ts'
 
 test('parseSubtitlePatch 钳制数值并忽略非法输入', () => {
   assert.deepEqual(parseSubtitlePatch('{"fontSize":500,"maxLines":0,"opacity":2}'), { fontSize: 96, maxLines: 2, opacity: 1 })
-  assert.deepEqual(parseSubtitlePatch({ position: 'top', bilingual: false }), { bilingual: false, position: 'top' })
+  assert.deepEqual(parseSubtitlePatch({ position: 'top', bilingual: false }), { bilingual: false })
   assert.equal(parseSubtitlePatch('{oops'), undefined)
   assert.equal(parseSubtitlePatch({ nope: 1 }), undefined)
 })

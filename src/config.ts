@@ -13,12 +13,12 @@ export interface Config {
   translate?: { provider?: string; model?: string; contextTurns?: number; followAgentDefault?: boolean; glossary?: string[] }
   segment?: { silenceMs?: number; maxSegmentMs?: number; preRollMs?: number }
   subtitle?: {
-    position?: 'bottom' | 'top'
     fontSize?: number
-    /** Sentence rows on screen (2-5): the newest row is the sentence being spoken. */
+    /** Sentence rows on screen (2-5); the newest row is the sentence being spoken. */
     maxLines?: number
     widthPercent?: number
     marginPercent?: number
+    /** Background opacity of the subtitle window (0.1-1). */
     opacity?: number
     background?: boolean
     bilingual?: boolean
@@ -42,7 +42,6 @@ export interface ResolvedSettings {
   translate: { provider: string; model: string; contextTurns: number; followAgentDefault: boolean; glossary: string[] }
   segment: { silenceMs: number; maxSegmentMs: number; preRollMs: number }
   subtitle: {
-    position: 'bottom' | 'top'
     fontSize: number
     /** Sentence rows on screen (2-5); the last one is the sentence being spoken. */
     maxLines: number
@@ -91,7 +90,6 @@ export const Config = z.object({
     preRollMs: z.natural().max(1000),
   }),
   subtitle: z.object({
-    position: z.union(['bottom', 'top']),
     fontSize: z.natural().min(12).max(96),
     maxLines: z.natural().min(2).max(5),
     widthPercent: z.natural().min(30).max(100),
@@ -118,16 +116,16 @@ const presets = {
     holdMs: 6000,
     minReadMs: 1800,
     bilingual: true,
-    fontSize: 30,
+    fontSize: 20,
   },
   media: {
     silenceMs: 550,
     maxSegmentMs: 7000,
-    maxLines: 4,
+    maxLines: 3,
     holdMs: 6000,
     minReadMs: 1500,
     bilingual: true,
-    fontSize: 34,
+    fontSize: 20,
   },
 } as const
 
@@ -161,7 +159,6 @@ export function resolveConfig(input: Config): ResolvedSettings {
       preRollMs: input.segment?.preRollMs ?? 200,
     },
     subtitle: {
-      position: input.subtitle?.position ?? 'bottom',
       fontSize: input.subtitle?.fontSize ?? base.fontSize,
       maxLines: input.subtitle?.maxLines ?? base.maxLines,
       widthPercent: input.subtitle?.widthPercent ?? 78,

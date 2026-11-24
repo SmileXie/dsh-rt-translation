@@ -28,10 +28,11 @@ public static class RtNative
     [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
     [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
 
-    public static void MakeClickThrough(IntPtr hwnd)
+
+    public static void MakeToolWindow(IntPtr hwnd)
     {
         int ex = GetWindowLong(hwnd, -20);
-        ex |= 0x20 | 0x08000000 | 0x00000080;
+        ex |= 0x00000080;
         SetWindowLong(hwnd, -20, ex);
     }
 
@@ -109,9 +110,8 @@ Add-Type -TypeDefinition $nativeSource -ReferencedAssemblies System.Windows.Form
 try { [void][RtNative]::SetProcessDpiAwarenessContext([IntPtr]-4) } catch { }
 
 $script:style = [pscustomobject]@{
-  fontSize = 32
+  fontSize = 20
   maxLines = 3
-  position = 'bottom'
   marginPercent = 8
   widthPercent = 78
   opacity = 0.72
@@ -126,7 +126,9 @@ $script:seq = 0
 $script:syncing = $true
 $script:shuttingDown = $false
 $script:hwndSub = [IntPtr]::Zero
-$script:displayedId = ''
+$script:userPositioned = $false
+$script:manualLeft = $null
+$script:manualTop = $null
 $script:nowOverride = $null
 $script:selfTestStatus = 0
 $script:hotkeys = @{}
@@ -200,12 +202,11 @@ function Apply-Style($incoming) {
   if ($null -eq $incoming) { return }
   foreach ($property in $incoming.PSObject.Properties) {
     switch ($property.Name) {
-      'fontSize' { $script:style.fontSize = [int](Clamp-Number $property.Value 12 96 32) }
+      'fontSize' { $script:style.fontSize = [int](Clamp-Number $property.Value 12 96 20) }
       'maxLines' { $script:style.maxLines = [int](Clamp-Number $property.Value 2 5 3) }
       'widthPercent' { $script:style.widthPercent = Clamp-Number $property.Value 30 100 78 }
       'opacity' { $script:style.opacity = Clamp-Number $property.Value 0.1 1 0.72 }
       'marginPercent' { $script:style.marginPercent = Clamp-Number $property.Value 0 30 8 }
-      'position' { if ($property.Value -eq 'top' -or $property.Value -eq 'bottom') { $script:style.position = [string]$property.Value } }
       'background' { $script:style.background = [bool]$property.Value }
       'bilingual' { $script:style.bilingual = [bool]$property.Value }
       'fontFamily' { if ([string]$property.Value -ne '') { $script:style.fontFamily = [string]$property.Value } }
@@ -226,7 +227,6 @@ function Initialize-SubtitleWindow {
   $script:subWindow.SizeToContent = [System.Windows.SizeToContent]::Height
   $script:subWindow.WindowStartupLocation = [System.Windows.WindowStartupLocation]::Manual
   $script:subWindow.ShowActivated = $false
-  $script:subWindow.IsHitTestVisible = $false
 
   $script:subBorder = New-Object System.Windows.Controls.Border
   $script:subBorder.CornerRadius = New-Object System.Windows.CornerRadius 10
@@ -234,7 +234,12 @@ function Initialize-SubtitleWindow {
   $script:subPanel = New-Object System.Windows.Controls.StackPanel
   $script:subBorder.Child = $script:subPanel
   $script:subWindow.Content = $script:subBorder
-}
+  $script:subWindow.add_MouseLeftButtonDown({
+    try { $script:subWindow.DragMove() } catch { }
+    $script:userPositioned = $true
+    $script:manualLeft = $script:subWindow.Left
+    $script:manualTop = $script:subWindow.Top
+  })}
 
 function Get-WindowHandle($window) {
   $helper = New-Object System.Windows.Interop.WindowInteropHelper ($window)
@@ -246,15 +251,23 @@ function Position-SubtitleWindow {
   $width = [math]::Round($area.Width * [double]$script:style.widthPercent / 100)
   if ($width -lt 240) { $width = 240 }
   $script:subWindow.Width = $width
+  if ($script:userPositioned -and $null -ne $script:manualLeft -and $null -ne $script:manualTop) {
+    # Keep the spot the user dragged to; only clamp it inside the work area.
+    $left = [double]$script:manualLeft
+    $top = [double]$script:manualTop
+    if ($left -lt $area.Left) { $left = $area.Left }
+    if ($left + $width -gt $area.Right) { $left = $area.Right - $width }
+    if ($top -lt $area.Top) { $top = $area.Top }
+    if ($top -gt $area.Bottom - 48) { $top = $area.Bottom - 48 }
+    $script:subWindow.Left = $left
+    $script:subWindow.Top = $top
+    return
+  }
   $script:subWindow.UpdateLayout()
   $height = $script:subWindow.ActualHeight
   if ([double]::IsNaN($height) -or $height -le 0) { $height = 120 }
   $left = $area.Left + ($area.Width - $width) / 2
-  if ($script:style.position -eq 'top') {
-    $top = $area.Top + $area.Height * [double]$script:style.marginPercent / 100
-  } else {
-    $top = $area.Bottom - $height - $area.Height * [double]$script:style.marginPercent / 100
-  }
+  $top = $area.Bottom - $height - $area.Height * [double]$script:style.marginPercent / 100
   $script:subWindow.Left = $left
   $script:subWindow.Top = $top
 }
@@ -398,22 +411,7 @@ function Upsert-Cue($cue) {
   if (Store-Cue $cue) { Render-Cues }
 }
 
-# Clear every row after this much silence. While speech continues the rows
-# scroll naturally and the visible window drops old entries.
-function Remove-IdleCues {
-  if ($script:cues.Count -eq 0) { return $false }
-  $newest = $script:cues[$script:cues.Count - 1]
-  $now = Get-Now
-  if (($now - $newest.at).TotalMilliseconds -gt [math]::Max(250, [int]$newest.holdMs)) {
-    $script:cues.Clear()
-    return $true
-  }
-  return $false
-}
 
-function Expire-Cues {
-  if (Remove-IdleCues) { Render-Cues }
-}
 function Queue-Subtitle($patchTable) {
   foreach ($key in $patchTable.Keys) { $script:pendingSubtitle[$key] = $patchTable[$key] }
   if (-not $script:subtitleTimer.IsEnabled) { $script:subtitleTimer.Start() }
@@ -685,7 +683,7 @@ function Process-Line([string]$line) {
 function Shutdown-Overlay {
   if ($script:shuttingDown) { return }
   $script:shuttingDown = $true
-  foreach ($timer in @($script:stdinTimer, $script:housekeepingTimer, $script:topmostTimer, $script:subtitleTimer)) {
+  foreach ($timer in @($script:stdinTimer, $script:topmostTimer, $script:subtitleTimer)) {
     try { if ($null -ne $timer) { $timer.Stop() } } catch { }
   }
   if ($null -ne $script:hotkeyHost) {
@@ -714,9 +712,6 @@ function Initialize-Timers {
     if ([RtIo]::Eof -and -not $script:shuttingDown) { Shutdown-Overlay }
   })
 
-  $script:housekeepingTimer = New-Object System.Windows.Threading.DispatcherTimer
-  $script:housekeepingTimer.Interval = [TimeSpan]::FromMilliseconds(250)
-  $script:housekeepingTimer.add_Tick({ Expire-Cues })
 
   $script:topmostTimer = New-Object System.Windows.Threading.DispatcherTimer
   $script:topmostTimer.Interval = [TimeSpan]::FromSeconds(2)
@@ -736,12 +731,12 @@ function Initialize-Windows {
 }
 
 function Run-SelfTest {
-  $script:style.fontSize = 34
+  $script:style.fontSize = 20
   if ($SelfTestMeeting) { $script:style.bilingual = $true }
   Update-StyleVisuals
   $script:subWindow.Show()
   $script:hwndSub = Get-WindowHandle $script:subWindow
-  [RtNative]::MakeClickThrough($script:hwndSub)
+  [RtNative]::MakeToolWindow($script:hwndSub)
   if ($SelfTestMeeting) {
     Upsert-Cue ([pscustomobject]@{
       id = 'selftest'
@@ -837,9 +832,7 @@ function Run-SelfTestRows {
   Assert-Rows 't=4500 最后一行为当前句' 'c4,c5,c6'
 
   Set-TestClock 11000
-  $cleared = Remove-IdleCues
-  if (-not $cleared) { $script:selfTestStatus = 1 }
-  Assert-Rows 't=11000 静音超时清空全部行' '<none>'
+  Assert-Rows 't=11000 静音后保留历史行' 'c4,c5,c6'
 
   Write-Output ('SUMMARY failures=' + $script:selfTestStatus)
 }
@@ -855,7 +848,7 @@ function Run-Overlay {
 
   $script:subWindow.Show()
   $script:hwndSub = Get-WindowHandle $script:subWindow
-  [RtNative]::MakeClickThrough($script:hwndSub)
+  [RtNative]::MakeToolWindow($script:hwndSub)
   $script:subWindow.Hide()
 
   Initialize-Tray
@@ -864,7 +857,6 @@ function Run-Overlay {
   [RtIo]::Start()
 
   $script:stdinTimer.Start()
-  $script:housekeepingTimer.Start()
   $script:topmostTimer.Start()
 
   Send-Json @{ op = 'ready' }

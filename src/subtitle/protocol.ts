@@ -20,7 +20,6 @@ export interface StylePayload {
   fontSize: number
   /** Sentence rows on screen (2-5); the last one is the sentence being spoken. */
   maxLines: number
-  position: 'bottom' | 'top'
   marginPercent: number
   widthPercent: number
   opacity: number
@@ -96,7 +95,6 @@ export function toStylePayload(subtitle: ResolvedSettings['subtitle']): StylePay
   return {
     fontSize: subtitle.fontSize,
     maxLines: subtitle.maxLines,
-    position: subtitle.position,
     marginPercent: subtitle.marginPercent,
     widthPercent: subtitle.widthPercent,
     opacity: subtitle.opacity,
