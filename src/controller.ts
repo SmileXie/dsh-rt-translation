@@ -151,11 +151,15 @@ export class Controller {
    */
   async resetDefaults(): Promise<void> {
     const defaults = resolveConfig({})
+    const translate = this.deps.settings().translate
     await this.deps.patchSettings({
       segment: defaults.segment,
       autoPauseAfterMs: defaults.autoPauseAfterMs,
       subtitle: defaults.subtitle,
+      // Clear the background material but keep the chosen route/languages.
+      translate: { ...translate, background: '', backgroundBrief: '', glossary: [] },
     })
+    this.glossaryErrorValue = null
     this.applySubtitle()
     this.emit()
     // Segment values only reach the running segmenter through a new pipeline.

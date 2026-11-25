@@ -226,6 +226,25 @@ test('resetDefaults 恢复切分/自动暂停/字幕默认值并保留语言', a
   assert.equal(d.opened, 0, '未收听时不应重连采集')
 })
 
+test('resetDefaults 清空翻译背景、摘要、术语并清掉准备错误', async () => {
+  const d = withPatch(fake())
+  d.settingsValue = resolveConfig({
+    translate: { provider: 'p', model: 'm', background: '看《哈利·波特与魔法石》', backgroundBrief: '旧摘要', glossary: ['Hermione=赫敏'] },
+  })
+  const c = new Controller(d as never)
+  await c.prepareGlossary()
+  assert.match(c.glossaryError() ?? '', /源语言/)
+
+  await c.resetDefaults()
+
+  assert.equal(d.settingsValue.translate.background, '')
+  assert.equal(d.settingsValue.translate.backgroundBrief, '')
+  assert.deepEqual(d.settingsValue.translate.glossary, [])
+  assert.equal(d.settingsValue.translate.provider, 'p')
+  assert.equal(d.settingsValue.translate.model, 'm')
+  assert.equal(c.glossaryError(), null)
+})
+
 test('收听中 resetDefaults 会重连采集并保持收听状态', async () => {
   const d = fake()
   d.settingsValue = resolveConfig({ segment: { silenceMs: 150, maxSegmentMs: 10_000 } })
