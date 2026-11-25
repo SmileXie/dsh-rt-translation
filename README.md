@@ -187,7 +187,7 @@ dsh --profile rt --no-open
 4. 如果还没有执行过 `/rt prepare`，这里会下载 SenseVoice 模型：状态点变黄，下载/加载完成后自动进入收听。
 5. 播放视频或加入会议，字幕出现在屏幕底部（默认字号 20、3 行）。
 
-默认显示 3 行（可 2–5）：最下面一行是当前正在说的话（先出原文，译文流式补上），上面几行是最近几句话，旧行逐渐变暗并在超出设定行数后滚出。默认显示「小字原文 + 大字译文」。字幕窗可以用鼠标直接拖动到你习惯的位置；停止说话后历史行会保留，停止翻译（⏸ / `/rt stop`）时字幕窗关闭。
+默认显示 3 行（可 2–5）：最下面一行是当前正在说的话（先出原文，译文流式补上），上面几行是最近几句话，旧行逐渐变暗并在超出设定行数后滚出。默认显示「小字原文 + 大字译文」。字幕窗可以用鼠标直接拖动到你习惯的位置（多显示器下拖到哪个屏幕就留在哪个屏幕）；停止说话后历史行会保留，停止翻译（⏸ / `/rt stop`）时字幕窗关闭。
 
 ### 日常操作
 
@@ -200,7 +200,7 @@ dsh --profile rt --no-open
 | 自动暂停 | 控制页「自动暂停」 |
 | 调字号 | `Ctrl+Alt+↑` / `Ctrl+Alt+↓`，或控制页「字幕 → 字号」 |
 | 显示几行 | 控制页「行数」2–5 |
-| 移动字幕窗 | 直接用鼠标拖动 |
+| 移动字幕窗 | 直接用鼠标拖动，可拖到任意显示器 |
 | 调透明度 | 控制页「透明度」滑块（20%–100%） |
 | 原文/双语 | `Ctrl+Alt+B`，或控制页「显示原文」勾选 |
 | 清屏 | `Ctrl+Alt+C`，或控制页「清屏」 |
@@ -274,7 +274,7 @@ dsh plugin --profile rt remove dsh-rt-translation
       minReadMs: 1800            # 译文至少可读多久才允许滚出
 ```
 
-字幕位置不再需要配置：字幕窗默认在屏幕底部居中，直接拖动即可；静音时保留最近几行，不会自动清空（`holdMs` 仅为兼容保留）。
+字幕位置不再需要配置：字幕窗默认在屏幕底部居中，直接拖动即可，拖到副屏后会留在副屏；静音时保留最近几行，不会自动清空（`holdMs` 仅为兼容保留）。
 
 ## 热键
 
@@ -323,10 +323,11 @@ dsh plugin --profile rt remove dsh-rt-translation
 powershell -NoProfile -ExecutionPolicy Bypass -File assets/overlay/overlay.ps1 -SelfTestIcon
 ```
 
-只验证多行滚动窗口的状态机（不弹窗，9 个时序断言，退出码 0）：
+只验证多行滚动窗口与多屏定位（不弹窗，9 + 5 个断言，退出码 0）：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File assets/overlay/overlay.ps1 -SelfTestRows
+powershell -NoProfile -ExecutionPolicy Bypass -File assets/overlay/overlay.ps1 -SelfTestPosition
 ```
 
 只验证 WPF 叠加窗（1.5 s 示例字幕，退出码 0）：
@@ -388,6 +389,13 @@ loopback-capture (PCM 48k stereo)
 - NDJSON 冒烟（`style` / `ui` / `cue` / `clear` / `shutdown`）正常退出。
 - `npm run typecheck` 仍受本地 checkout 路径缺失影响，见交接文档。
 
+### 多显示器拖动回归（2026-11-25）
+
+- `overlay.ps1 -SelfTestPosition`：5/5 通过（初始底部居中、右侧/负坐标副屏保持、副屏下缘不被主屏钳制、非法坐标回退）。
+- `-SelfTestRows` 9/9、`-SelfTestIcon` 1/1、`-SelfTest` 退出码 0，无回归。
+- 单元测试 91/91（本机沙箱内用 `node --test --test-isolation=none "tests/**/*.test.ts"` 等价运行）。
+- 真机多屏拖动仍需人工确认：拖到副屏后继续出字幕应留在副屏。
+
 ### 真机验收（Windows 11 + DSH Web + `qwen-token-plan-cn / deepseek-v4.1-flash`）
 
 - 系统回环采集（`system-exclude-self`）→ SenseVoice → LLM 翻译 → WPF 字幕全链路可用。
@@ -404,6 +412,7 @@ loopback-capture (PCM 48k stereo)
 ### 尚未人工验收
 
 - 左侧「实时翻译」入口与页面在重启/刷新后的实际加载（`dsh.client` 浏览器半）。
+- 多显示器：把字幕窗拖到副屏后，继续出字幕是否稳定留在副屏（2026-11-25 修复）。
 - 真实会议软件共享整个屏幕时的字幕可见性。
 - 2–5 行历史在连续对白下的滚动与遮挡效果（10 分钟压测）。
 - 拔插耳机或切换默认输出设备后的自动恢复与 `/rt restart`。

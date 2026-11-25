@@ -558,6 +558,7 @@ dsh-rt-translation/
 - 取消会议/影视两套预设：默认值取原会议参数（静音 280 ms / 单句 5000 ms / 自动暂停 120 s），切分与自动暂停改为控制条直接设置（`setSegment` / `setAutoPause`）。
 - 删除片名术语表与 `/rt title`；`translate.glossary` 配置项保留。
 - 行模型、`minReadMs` 滚动保护不变。
+- 多显示器拖动修复（2026-11-25）：不再用主屏 `WorkArea` 钳制拖动坐标，拖到副屏后保持位置；拖动期间的 cue 渲染不再与 `DragMove` 抢位置。
 
 
 

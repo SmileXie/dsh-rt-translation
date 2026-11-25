@@ -25,7 +25,7 @@
 | --- | --- | --- |
 | `npm install` | 安装插件自身依赖 | 链接安装不会自动装，缺了插件加载失败 |
 | `npm test` | 单元/集成测试（`node --test`，91 个） | 提交前必须通过 |
-| `npm run test:overlay` | 多行窗口状态机自检（9 个断言，不弹窗） | 改 `overlay.ps1` 行选择逻辑后必跑 |
+| `npm run test:overlay` | 行窗口 + 多屏位置自检（9 + 5 个断言，不弹窗） | 改 `overlay.ps1` 行选择/窗口定位后必跑 |
 | `npm run test:icon` | 托盘图标生成自检（`PASS tray icon 32x32`） | 改 `assets/icon.jpeg` / 图标代码后跑 |
 | `powershell ... overlay.ps1 -SelfTest` | 弹 1.5 秒字幕窗，验证 WPF 渲染 | 需要桌面会话 |
 | `powershell ... overlay.ps1 -SelfTestMeeting` | 同上，双语文案 | 名字是历史遗留，仅“双语” |
@@ -73,7 +73,7 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 | `src/subtitle/protocol.ts` | NDJSON 协议、动作白名单、`toStylePayload` |
 | `src/subtitle/renderer.ts` | `SubtitleRenderer` 接口（含可恢复的 `close()`） |
 | `src/subtitle/windows-wpf.ts` | 子进程管理、重启、close/dispose |
-| `assets/overlay/overlay.ps1` | WPF 叠加窗、托盘、热键、协议处理、行窗口与自检 |
+| `assets/overlay/overlay.ps1` | WPF 叠加窗、托盘、热键、协议处理、行窗口、多屏定位与自检 |
 | `client.js` | DSH 浏览器半：侧边栏入口、「实时翻译」页、fetch 轮询 |
 | `assets/icon.jpeg` | 托盘图标源图（缩放到 32×32） |
 | `cordis.bundle.patch.yml` | `dsh plugin add` 安装用的 bundle patch |
@@ -109,7 +109,7 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 - 字幕窗显示最近 `maxLines` 句：最后一行是当前句，上方是历史；历史行透明度 0.7。
 - 静音时保留历史，不自动关闭；**停止翻译**（⏸ / `/rt stop` / dispose）会清空并关闭字幕窗；`/rt restart` 不清屏。
 - 新译文出现后至少保留 `minReadMs` 才允许滚出，必要时短暂多显示一行（`maxLines + 1`）。
-- 字幕窗可鼠标拖动；拖动位置只在当前会话保持，初始位置底部居中。没有顶部/底部配置。
+- 字幕窗可鼠标拖动；拖动位置只在当前会话保持，初始位置底部居中。拖到任意显示器后都留在该屏幕，不会被主屏工作区钳回。没有顶部/底部配置。
 - 托盘：**左键**开始/停止；**右键只有「退出」**。退出只关闭 overlay/托盘，之后从控制页 ▶、`Ctrl+Alt+S` 或 `/rt start` 可重新拉起，无需重启 DSH。
 - 全局热键：`Ctrl+Alt+S`（开始/停止）、`Ctrl+Alt+C`（清屏）、`Ctrl+Alt+↑/↓`（字号）、`Ctrl+Alt+B`（双语）。
 - 已移除、不要无意加回：会议/影视模式与 `/rt mode`、片名术语表与 `/rt title`、独立 WPF 控制条与设置窗、鼠标热区、`Ctrl+Alt+H`、`/rt ui`、`ui.controlBar*`/`showStatusDot`、`subtitle.position`、`subtitle.display`。
@@ -204,7 +204,7 @@ npm run test:icon
 1. 完全退出 DSH 并重开；打开 DSH 页面。
 2. 左侧导航应出现「实时翻译」；点开页面应显示「已停止」，点 ▶ → 准备模型 → 收听中。页面不覆盖对话内容。
 3. 播一段带语音的音频：最后一行是当前句，上方是历史；停止说话后历史保留。
-4. 拖动字幕窗到别处；调透明度、字号、行数、静音切分、单句最长、自动暂停应即时生效。
+4. 拖动字幕窗到别处（多显示器下拖到副屏），继续说话/等新字幕时窗口应留在原处，不跳回主屏；调透明度、字号、行数、静音切分、单句最长、自动暂停应即时生效。
 5. ⏸ / `/rt stop` 应关闭字幕窗；再次 ▶ 应重新打开。
 6. 托盘左键开始/停止；右键只有「退出」；退出后从控制页再开始应能重新拉起托盘。
 7. 若控制页报错，先看 `%TEMP%\dsh-rt-translation.log`（`src/index.ts` 仍有临时诊断日志，验证稳定后可删）。

@@ -1,4 +1,4 @@
-﻿param([switch]$SelfTest, [switch]$SelfTestMeeting, [switch]$SelfTestRows, [switch]$SelfTestHold, [switch]$SelfTestIcon, [string]$ConfigBase64 = '')
+﻿param([switch]$SelfTest, [switch]$SelfTestMeeting, [switch]$SelfTestRows, [switch]$SelfTestHold, [switch]$SelfTestPosition, [switch]$SelfTestIcon, [string]$ConfigBase64 = '')
 
 $ErrorActionPreference = 'Stop'
 
@@ -129,6 +129,7 @@ $script:shuttingDown = $false
 $script:hwndSub = [IntPtr]::Zero
 $script:trayIconHandle = [IntPtr]::Zero
 $script:userPositioned = $false
+$script:dragging = $false
 $script:manualLeft = $null
 $script:manualTop = $null
 $script:nowOverride = $null
@@ -236,11 +237,18 @@ function Initialize-SubtitleWindow {
   $script:subPanel = New-Object System.Windows.Controls.StackPanel
   $script:subBorder.Child = $script:subPanel
   $script:subWindow.Content = $script:subBorder
+  # Remember the drop point before a cue render can reposition the window.
+  # `dragging` suppresses placement because DragMove's nested message loop
+  # still lets the stdin timer deliver cues while the mouse is held down.
   $script:subWindow.add_MouseLeftButtonDown({
+    $script:dragging = $true
     try { $script:subWindow.DragMove() } catch { }
-    $script:userPositioned = $true
-    $script:manualLeft = $script:subWindow.Left
-    $script:manualTop = $script:subWindow.Top
+    finally {
+      $script:dragging = $false
+      $script:userPositioned = $true
+      $script:manualLeft = $script:subWindow.Left
+      $script:manualTop = $script:subWindow.Top
+    }
   })}
 
 function Get-WindowHandle($window) {
@@ -248,30 +256,46 @@ function Get-WindowHandle($window) {
   return $helper.Handle
 }
 
+function Test-FiniteNumber($value) {
+  if ($null -eq $value) { return $false }
+  $number = 0.0
+  if (-not [double]::TryParse([string]$value, [ref]$number)) { return $false }
+  return (-not [double]::IsNaN($number) -and -not [double]::IsInfinity($number))
+}
+
+# Pure placement math (no WPF calls) so the multi-monitor rules are testable
+# with -SelfTestPosition. A dragged position is returned verbatim: clamping it
+# against the primary monitor's WorkArea moved the overlay back to the primary
+# screen whenever it had been dragged to another monitor. Only the default
+# spot (not dragged yet) is derived from the primary work area.
+function Resolve-SubtitlePlacement($area, [double]$width, [double]$height, $manualLeft, $manualTop, [double]$marginPercent) {
+  if ((Test-FiniteNumber $manualLeft) -and (Test-FiniteNumber $manualTop)) {
+    return [pscustomobject]@{ left = [double]$manualLeft; top = [double]$manualTop }
+  }
+  if ([double]::IsNaN($height) -or [double]::IsInfinity($height) -or $height -le 0) { $height = 120 }
+  $left = $area.Left + ($area.Width - $width) / 2
+  $top = $area.Bottom - $height - $area.Height * $marginPercent / 100
+  return [pscustomobject]@{ left = $left; top = $top }
+}
+
 function Position-SubtitleWindow {
+  # A cue can arrive while DragMove pumps messages; do not fight the drag.
+  if ($script:dragging) { return }
   $area = [System.Windows.SystemParameters]::WorkArea
   $width = [math]::Round($area.Width * [double]$script:style.widthPercent / 100)
   if ($width -lt 240) { $width = 240 }
   $script:subWindow.Width = $width
-  if ($script:userPositioned -and $null -ne $script:manualLeft -and $null -ne $script:manualTop) {
-    # Keep the spot the user dragged to; only clamp it inside the work area.
-    $left = [double]$script:manualLeft
-    $top = [double]$script:manualTop
-    if ($left -lt $area.Left) { $left = $area.Left }
-    if ($left + $width -gt $area.Right) { $left = $area.Right - $width }
-    if ($top -lt $area.Top) { $top = $area.Top }
-    if ($top -gt $area.Bottom - 48) { $top = $area.Bottom - 48 }
-    $script:subWindow.Left = $left
-    $script:subWindow.Top = $top
-    return
-  }
   $script:subWindow.UpdateLayout()
   $height = $script:subWindow.ActualHeight
-  if ([double]::IsNaN($height) -or $height -le 0) { $height = 120 }
-  $left = $area.Left + ($area.Width - $width) / 2
-  $top = $area.Bottom - $height - $area.Height * [double]$script:style.marginPercent / 100
-  $script:subWindow.Left = $left
-  $script:subWindow.Top = $top
+  $manualLeft = $null
+  $manualTop = $null
+  if ($script:userPositioned) {
+    $manualLeft = $script:manualLeft
+    $manualTop = $script:manualTop
+  }
+  $placement = Resolve-SubtitlePlacement $area $width $height $manualLeft $manualTop ([double]$script:style.marginPercent)
+  $script:subWindow.Left = $placement.left
+  $script:subWindow.Top = $placement.top
 }
 
 function Test-CueTarget($cue) {
@@ -762,6 +786,53 @@ function Run-SelfTestRows {
 
   Write-Output ('SUMMARY failures=' + $script:selfTestStatus)
 }
+
+function Assert-Placement([string]$stage, [double]$expectedLeft, [double]$expectedTop, $placement) {
+  $actual = '<none>'
+  $ok = ($null -ne $placement)
+  if ($ok) {
+    $actual = ('{0},{1}' -f $placement.left, $placement.top)
+    $ok = ([math]::Abs([double]$placement.left - $expectedLeft) -lt 0.5 -and
+      [math]::Abs([double]$placement.top - $expectedTop) -lt 0.5)
+  }
+  if (-not $ok) { $script:selfTestStatus = 1 }
+  $mark = if ($ok) { 'PASS' } else { 'FAIL' }
+  Write-Output ("{0} {1}: expected={2},{3} actual={4}" -f $mark, $stage, $expectedLeft, $expectedTop, $actual)
+}
+
+# Pure placement check: the default spot is bottom-center on the primary work
+# area, while a user drag to any monitor keeps its own coordinates. This is the
+# regression test for the overlay jumping back to the primary screen.
+function Run-SelfTestPosition {
+  $primary = New-Object System.Windows.Rect 0, 0, 1920, 1040
+  $width = [math]::Round($primary.Width * 78 / 100)
+  $height = 120
+  $margin = 8
+  $defaultLeft = ($primary.Width - $width) / 2
+  $defaultTop = $primary.Bottom - $height - $primary.Height * $margin / 100
+
+  $placement = Resolve-SubtitlePlacement $primary $width $height $null $null $margin
+  Assert-Placement '初始位置在主屏底部居中' $defaultLeft $defaultTop $placement
+
+  # Regression: 2500 used to be clamped to 1920 - width (422) and snapped the
+  # window back across the primary screen's right edge.
+  $placement = Resolve-SubtitlePlacement $primary $width $height 2500 120 $margin
+  Assert-Placement '拖到右侧副屏后保持位置' 2500 120 $placement
+
+  # A monitor left of/above the primary uses negative virtual-screen coordinates.
+  $placement = Resolve-SubtitlePlacement $primary $width $height -1180 -20 $margin
+  Assert-Placement '拖到左侧/上方副屏后保持位置' -1180 -20 $placement
+
+  # A taller monitor must not have its bottom clamped to the primary work area.
+  $placement = Resolve-SubtitlePlacement $primary $width $height 2400 1100 $margin
+  Assert-Placement '副屏下缘位置不被主屏钳制' 2400 1100 $placement
+
+  # Broken coordinates fall back to the default spot instead of throwing.
+  $placement = Resolve-SubtitlePlacement $primary $width $height ([double]::NaN) 120 $margin
+  Assert-Placement '非法拖动坐标回退默认位置' $defaultLeft $defaultTop $placement
+
+  Write-Output ('SUMMARY failures=' + $script:selfTestStatus)
+}
 function Run-Overlay {
   if ($ConfigBase64 -ne '') {
     try {
@@ -805,6 +876,11 @@ if ($SelfTestIcon) {
 
 if ($SelfTestRows -or $SelfTestHold) {
   Run-SelfTestRows
+  exit $script:selfTestStatus
+}
+
+if ($SelfTestPosition) {
+  Run-SelfTestPosition
   exit $script:selfTestStatus
 }
 
