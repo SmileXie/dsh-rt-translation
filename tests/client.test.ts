@@ -264,6 +264,16 @@ test('连接后的页面渲染翻译背景卡，且 textarea 不携带 children�
   assert.match(pageText, /识别:/)
   assert.ok(pageText.indexOf('识别:') > pageText.indexOf('操作'), '状态信息应排在操作卡之后')
   assert.equal(hasPairedCards(tree, '操作', '状态'), true, '操作与状态应是同一行的两个卡片')
+  const row = pairedRow(tree, '操作', '状态')
+  assert.ok(row !== undefined, '应找到操作/状态所在行')
+  assert.equal(row.props.style.display, 'flex')
+  assert.equal(row.props.style.alignItems, 'stretch', '行内卡片应拉伸到等高')
+  const cards = row.props.children as Array<{ type: string; props: Record<string, any> }>
+  assert.equal(cards.length, 2)
+  for (const cardEl of cards) {
+    assert.equal(cardEl.type, 'section', '行内直接子元素应是卡片本身，而不是包装 div')
+    assert.match(String(cardEl.props.style.flex), /^1 1 /, '卡片需可伸展以对齐高度')
+  }
   for (const textarea of textareas) {
     assert.equal((textarea.props as { children?: unknown }).children, undefined)
   }
@@ -298,6 +308,24 @@ function hasPairedCards(tree: unknown, left: string, right: string): boolean {
     const texts = children.map(child => treeText(child))
     if (element.type === 'div' && texts.some(text => text.includes(left)) && texts.some(text => text.includes(right))) {
       found = true
+    }
+    visit(element.props?.children)
+  }
+  visit(tree)
+  return found
+}
+
+/** Find the row div whose two direct children are the cards containing both labels. */
+function pairedRow(tree: unknown, left: string, right: string): { type: string; props: Record<string, any> } | undefined {
+  let found: { type: string; props: Record<string, any> } | undefined
+  const visit = (node: unknown) => {
+    if (Array.isArray(node)) { for (const child of node) visit(child); return }
+    if (!node || typeof node !== 'object') return
+    const element = node as { type?: unknown; props?: { children?: unknown } }
+    const children = Array.isArray(element.props?.children) ? element.props.children : []
+    const texts = children.map(child => treeText(child))
+    if (element.type === 'div' && texts.some(text => text.includes(left)) && texts.some(text => text.includes(right))) {
+      found = element as never
     }
     visit(element.props?.children)
   }

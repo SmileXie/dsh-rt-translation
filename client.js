@@ -183,11 +183,16 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function card(title, ...children) {
-      return h('section', { style: P.card },
+    /** One card; `style` merges over the shared card style (e.g. to grow inside a row). */
+    function panel(title, style, ...children) {
+      return h('section', { style: { ...P.card, ...(style || {}) } },
         h('div', { style: P.cardTitle }, title),
         ...children,
       )
+    }
+
+    function card(title, ...children) {
+      return panel(title, undefined, ...children)
     }
 
     /** Apply the Host's glossary caps while typing so the textarea never shows text that will be dropped. */
@@ -402,27 +407,23 @@ window.__ModuleLoader__.load({
           ),
         ),
         h('div', { style: { display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'stretch' } },
-          h('div', { style: { flex: '1 1 300px', minWidth: 0 } },
-            card('操作',
-              h('div', { style: P.row },
-                h('button', { style: S.button, onClick: () => { void act('clear') } }, '清屏'),
-                h('button', { style: S.button, onClick: () => { void act('restart') } }, '重连音频'),
-                h('button', { style: S.button, onClick: () => { void act('prepare') } }, '准备模型'),
-                h('button', {
-                  style: S.button,
-                  title: '切分、自动暂停与字幕恢复默认值，并清空翻译背景/摘要/术语（语言保持不变）',
-                  onClick: () => { void act('resetDefaults') },
-                }, '默认配置'),
-              ),
+          panel('操作', { flex: '1 1 300px', minWidth: 0 },
+            h('div', { style: P.row },
+              h('button', { style: S.button, onClick: () => { void act('clear') } }, '清屏'),
+              h('button', { style: S.button, onClick: () => { void act('restart') } }, '重连音频'),
+              h('button', { style: S.button, onClick: () => { void act('prepare') } }, '准备模型'),
+              h('button', {
+                style: S.button,
+                title: '切分、自动暂停与字幕恢复默认值，并清空翻译背景/摘要/术语（语言保持不变）',
+                onClick: () => { void act('resetDefaults') },
+              }, '默认配置'),
             ),
           ),
-          h('div', { style: { flex: '1 1 300px', minWidth: 0 } },
-            card('状态',
-              h('div', { style: P.footer }, `识别: ${snap.stt}`),
-              h('div', { style: P.footer }, `翻译: ${snap.translate.provider || '跟随默认'} / ${snap.translate.model || '自动'}`),
-              snap.persistence ? null : h('div', { style: P.footer }, '设置未写入 profile（仅内存）'),
-              state.error || error ? h('div', { style: P.error }, state.error || error) : null,
-            ),
+          panel('状态', { flex: '1 1 300px', minWidth: 0 },
+            h('div', { style: P.footer }, `识别: ${snap.stt}`),
+            h('div', { style: P.footer }, `翻译: ${snap.translate.provider || '跟随默认'} / ${snap.translate.model || '自动'}`),
+            snap.persistence ? null : h('div', { style: P.footer }, '设置未写入 profile（仅内存）'),
+            state.error || error ? h('div', { style: P.error }, state.error || error) : null,
           ),
         ),
         card('翻译背景',
