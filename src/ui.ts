@@ -6,6 +6,11 @@ import type { OverlayOp } from './subtitle/protocol.ts'
 const SOURCES = new Set(['auto', 'zh', 'en', 'ja', 'ko', 'yue'])
 const TARGETS = new Set(['zh', 'en', 'ja', 'ko', 'yue'])
 
+const BACKGROUND_MAX = 2000
+const BRIEF_MAX = 300
+const GLOSSARY_MAX = 200
+const GLOSSARY_LINE_MAX = 120
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
@@ -53,6 +58,36 @@ export function parseAutoPause(value: unknown): number | undefined {
     : typeof value === 'string' && value.trim() !== '' ? Number(value) : Number.NaN
   if (!Number.isFinite(parsed)) return undefined
   return Math.round(clamp(parsed, 0, 3_600_000))
+}
+
+/** Validate the background text; non-strings are ignored, long input is truncated. */
+export function parseBackground(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  return value.trim().slice(0, BACKGROUND_MAX)
+}
+
+/** Collapse the brief to one line and cap its length. */
+export function parseBrief(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  return value.replace(/\s+/g, ' ').trim().slice(0, BRIEF_MAX)
+}
+
+/** Validate an edited glossary: trim, drop blanks and duplicates, cap lines and length. */
+export function parseGlossaryPatch(value: unknown): string[] | undefined {
+  let raw: unknown = value
+  if (typeof value === 'string') raw = value.split(/\r?\n/)
+  if (!Array.isArray(raw)) return undefined
+  const seen = new Set<string>()
+  const lines: string[] = []
+  for (const item of raw) {
+    if (typeof item !== 'string') continue
+    const line = item.trim().slice(0, GLOSSARY_LINE_MAX)
+    if (line === '' || seen.has(line)) continue
+    seen.add(line)
+    lines.push(line)
+    if (lines.length >= GLOSSARY_MAX) break
+  }
+  return lines
 }
 
 /** Execute one overlay action; unknown names and values are ignored. */
@@ -114,6 +149,22 @@ export async function dispatchAction(
           else await controller.setCapture('app', op.value.trim())
         }
         return
+      case 'setBackground': {
+        const text = parseBackground(op.value)
+        if (text !== undefined) await controller.setBackground(text)
+        return
+      }
+      case 'setBrief': {
+        const text = parseBrief(op.value)
+        if (text !== undefined) await controller.setBrief(text)
+        return
+      }
+      case 'setGlossary': {
+        const lines = parseGlossaryPatch(op.value)
+        if (lines !== undefined) await controller.setGlossary(lines)
+        return
+      }
+      case 'prepareGlossary': await controller.prepareGlossary(); return
       case 'quit': await controller.quit(); return
     }
   } catch (error) {

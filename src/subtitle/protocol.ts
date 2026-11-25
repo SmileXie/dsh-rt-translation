@@ -7,6 +7,7 @@ export type ActionName =
   | 'setSource' | 'setTarget' | 'setFontSize' | 'setSubtitle'
   | 'setSegment' | 'setAutoPause' | 'resetDefaults'
   | 'setApp' | 'quit'
+  | 'setBackground' | 'setBrief' | 'setGlossary' | 'prepareGlossary'
 
 export interface UiState {
   running: boolean
@@ -61,6 +62,7 @@ export const PANEL_ACTIONS: ReadonlySet<ActionName> = new Set([
   'toggle', 'start', 'stop', 'prepare', 'clear', 'restart',
   'setSource', 'setTarget', 'setFontSize', 'setSubtitle',
   'setSegment', 'setAutoPause', 'resetDefaults', 'setApp',
+  'setBackground', 'setBrief', 'setGlossary', 'prepareGlossary',
 ])
 
 /** Serialize one host instruction as a single NDJSON line. */
