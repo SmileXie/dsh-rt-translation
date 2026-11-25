@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildPrompt, cleanTranslation, selectGlossary, Translator } from '../src/translate.ts'
+import { buildPreparePrompt, buildPrompt, cleanTranslation, parseModelPrep, selectGlossary, Translator } from '../src/translate.ts'
 
 test('buildPrompt 含语言名、术语与原文', () => {
   const { system, user } = buildPrompt({ text: 'Hermione 来了', source: 'zh', target: 'en', context: [], glossary: ['Hermione=赫敏'], signal: AbortSignal.timeout(1000) })
@@ -74,4 +74,72 @@ test('只指定 provider 时选该 provider 第一个模型', async () => {
     agentDefaultModel: () => ({ provider: 'p', model: 'm' }),
   })
   assert.deepEqual(await t.route(), { provider: 'y', model: 'y1' })
+})
+
+test('buildPreparePrompt 要求摘要与原文=译文格式，并带目标语言', () => {
+  const { system, user } = buildPreparePrompt({ background: '看《哈利·波特与魔法石》', source: 'auto', target: 'zh' })
+  assert.ok(system.includes('Chinese'))
+  assert.ok(system.includes('[摘要]') && system.includes('[术语]'))
+  assert.ok(system.includes('='))
+  assert.ok(user.includes('看《哈利·波特与魔法石》'))
+})
+
+test('parseModelPrep 解析标记、列表符号与代码围栏', () => {
+  const raw = '```\n[摘要]\n哈利·波特观影场景，涉及魔法学校一年级。\n\n[术语]\n- Hermione=赫敏\n2. Quidditch=魁地奇\nQuidditch=魁地奇\n```'
+  assert.deepEqual(parseModelPrep(raw), {
+    brief: '哈利·波特观影场景，涉及魔法学校一年级。',
+    glossary: ['Hermione=赫敏', 'Quidditch=魁地奇'],
+  })
+})
+
+test('parseModelPrep 容忍 CRLF 与缺少标记的退化输出', () => {
+  const crlf = '[摘要]\r\n魔法学校\r\n\r\n[术语]\r\nHermione=赫敏'
+  assert.deepEqual(parseModelPrep(crlf), { brief: '魔法学校', glossary: ['Hermione=赫敏'] })
+  assert.deepEqual(parseModelPrep('魔法学校一年级\nHermione=赫敏\nQuidditch=魁地奇'), {
+    brief: '魔法学校一年级',
+    glossary: ['Hermione=赫敏', 'Quidditch=魁地奇'],
+  })
+})
+
+test('parseModelPrep 压缩摘要为一行并截断，词表上限 80', () => {
+  const brief = parseModelPrep('[摘要]\n第一行\n第二行\n[术语]').brief
+  assert.equal(brief, '第一行 第二行')
+  const long = parseModelPrep(`[摘要]\n${'摘'.repeat(400)}`).brief
+  assert.equal(long.length, 300)
+  const lines = Array.from({ length: 90 }, (_, i) => `t${i}=词${i}`).join('\n')
+  assert.equal(parseModelPrep(`[术语]\n${lines}`).glossary.length, 80)
+})
+
+test('prepareGlossary 走翻译路由并解析模型输出', async () => {
+  const calls: Array<Record<string, unknown>> = []
+  const llm = {
+    stream(options: Record<string, unknown>) {
+      calls.push(options)
+      return (async function* () {
+        yield { type: 'text-delta', text: '[摘要]\n魔法学校\n\n[术语]\nHermione=赫敏' }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      })()
+    },
+  }
+  const t = new Translator(llm as never, { provider: 'p', model: 'm', followAgentDefault: false })
+  const result = await t.prepareGlossary({ background: '看《哈利·波特与魔法石》', source: 'auto', target: 'zh', signal: AbortSignal.timeout(1000) })
+  assert.deepEqual(result, { brief: '魔法学校', glossary: ['Hermione=赫敏'] })
+  assert.equal(calls[0].provider, 'p')
+  assert.equal(calls[0].model, 'm')
+  assert.equal((calls[0].system as string).includes('Chinese'), true)
+})
+
+test('prepareGlossary 在模型报错时抛出', async () => {
+  const llm = {
+    stream() {
+      return (async function* () {
+        yield { type: 'finish', reason: { kind: 'error', failure: { message: 'down' } } }
+      })()
+    },
+  }
+  const t = new Translator(llm as never, { provider: 'p', model: 'm', followAgentDefault: false })
+  await assert.rejects(
+    t.prepareGlossary({ background: '背景', source: 'auto', target: 'zh', signal: AbortSignal.timeout(1000) }),
+    /down/,
+  )
 })
