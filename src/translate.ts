@@ -48,7 +48,7 @@ export function selectGlossary(text: string, glossary: string[], limit = 12): st
     const from = (entry.split('=')[0] ?? '').trim().toLowerCase()
     if (from === '' || !haystack.includes(from)) continue
     seen.add(entry)
-    picked.push(entry)
+    picked.push(entry.slice(0, 120))
     if (picked.length >= limit) break
   }
   return picked
@@ -117,7 +117,7 @@ function cleanEntries(lines: string[]): string[] {
     const key = from.toLowerCase()
     if (seen.has(key)) continue
     seen.add(key)
-    out.push(`${from}=${to}`)
+    out.push(`${from}=${to}`.slice(0, 120))
     if (out.length >= 80) break
   }
   return out

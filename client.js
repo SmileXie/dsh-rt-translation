@@ -190,6 +190,11 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /** Apply the Host's glossary caps while typing so the textarea never shows text that will be dropped. */
+    function clampGlossaryText(text) {
+      return text.split(/\r?\n/).slice(0, 200).map(line => line.slice(0, 120)).join('\n')
+    }
+
     /** Sidebar glyph: a subtitle frame with two text lines, drawn in `currentColor`. */
     function PanelEntryIcon({ size }) {
       const edge = typeof size === 'number' ? size : 20
@@ -334,6 +339,7 @@ window.__ModuleLoader__.load({
           h('textarea', {
             rows: 3,
             value: brief,
+            maxLength: 300,
             placeholder: '一两句话说清在听什么、谁是谁；留空则不注入',
             style: fieldStyle,
             onFocus: () => { if (briefDraft === null) setBriefDraft(tr.backgroundBrief || '') },
@@ -365,10 +371,13 @@ window.__ModuleLoader__.load({
             placeholder: '每行一条「原文=译文」，例如 Hermione=赫敏',
             style: { ...fieldStyle, maxHeight: 240, overflowY: 'auto' },
             onFocus: () => { if (glossDraft === null) setGlossDraft(glossText) },
-            onChange: event => setGlossDraft(event.target.value),
+            onChange: event => setGlossDraft(clampGlossaryText(event.target.value)),
             onBlur: blurGlossary,
           }),
-        h('div', { style: P.hint }, '翻译时只注入本句出现的词条（最多 12 条）；空行与重复行会被忽略。'),
+        !glossaryCollapsed && glossary.length === 0
+          ? h('div', { style: P.hint }, '暂无术语，可手填，或先填背景再点「准备词汇」。')
+          : null,
+        h('div', { style: P.hint }, '最多 200 行、每行 120 字符，超出会即时截断；翻译时只注入本句出现的词条（≤12 条），空行与重复行会被忽略。'),
       )
 
       return h('div', { style: P.page },
@@ -401,6 +410,7 @@ window.__ModuleLoader__.load({
           h('textarea', {
             rows: 2,
             value: bg,
+            maxLength: 2000,
             placeholder: '例：看《哈利·波特与魔法石》／讨论 AI 大模型方案',
             style: fieldStyle,
             onFocus: () => { if (bgDraft === null) setBgDraft(tr.background || '') },

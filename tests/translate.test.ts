@@ -54,6 +54,12 @@ test('buildPrompt 有摘要时加 [Background]，空摘要不留段', () => {
   assert.ok(!buildPrompt({ ...base, brief: '   ' }).user.includes('[Background]'))
 })
 
+test('超长词条在解析与读侧都截到 120 字符', () => {
+  const long = `Hermione${'x'.repeat(300)}=赫敏`
+  assert.equal(parseModelPrep(`[术语]\n${long}`).glossary[0].length, 120)
+  assert.equal(selectGlossary(`聊 ${long}`, [long])[0].length, 120)
+})
+
 test('route 跟随 agentDefaultModel', async () => {
   const t = new Translator({} as never, { provider: '', model: '', followAgentDefault: true, agentDefaultModel: () => ({ provider: 'p', model: 'm' }) })
   assert.deepEqual(await t.route(), { provider: 'p', model: 'm' })
