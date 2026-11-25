@@ -1,4 +1,4 @@
-﻿param([switch]$SelfTest, [switch]$SelfTestMeeting, [switch]$SelfTestRows, [switch]$SelfTestHold, [switch]$SelfTestPosition, [switch]$SelfTestIcon, [string]$ConfigBase64 = '')
+﻿param([switch]$SelfTest, [switch]$SelfTestMeeting, [switch]$SelfTestRows, [switch]$SelfTestHold, [switch]$SelfTestPosition, [switch]$SelfTestIcon, [switch]$SelfTestMenu, [string]$ConfigBase64 = '')
 
 $ErrorActionPreference = 'Stop'
 
@@ -136,6 +136,8 @@ $script:nowOverride = $null
 $script:selfTestStatus = 0
 $script:hotkeys = @{}
 $script:pendingSubtitle = @{}
+$script:subMenu = $null
+$script:subMenuOpen = $false
 $script:ui = [pscustomobject]@{
   tray = $true
   hotkeysEnabled = $true
@@ -219,6 +221,29 @@ function Apply-Style($incoming) {
   Update-StyleVisuals
 }
 
+# 右键字幕窗只提供最需要随手可达的一个动作：停止翻译并关闭字幕。
+# 菜单项点击后同时通知 Host 停止采集，并立即清空/隐藏本地字幕；
+# 即使 Host 暂时无响应，屏幕上的字幕也会先消失。
+function New-SubtitleMenu {
+  $menu = New-Object System.Windows.Controls.ContextMenu
+  $stopItem = New-Object System.Windows.Controls.MenuItem
+  $stopItem.Header = '停止翻译并关闭字幕'
+  $stopItem.add_Click({
+    Send-Action 'stop'
+    Clear-Cues
+  })
+  [void]$menu.Items.Add($stopItem)
+  # 字幕窗每 2 秒会重新置顶；菜单展开时暂停，避免把弹出菜单压到窗口下面。
+  $menu.add_Opened({ $script:subMenuOpen = $true })
+  $menu.add_Closed({ $script:subMenuOpen = $false })
+  return $menu
+}
+
+function Initialize-SubtitleMenu {
+  $script:subMenu = New-SubtitleMenu
+  $script:subWindow.ContextMenu = $script:subMenu
+}
+
 function Initialize-SubtitleWindow {
   $script:subWindow = New-Object System.Windows.Window
   $script:subWindow.WindowStyle = [System.Windows.WindowStyle]::None
@@ -237,6 +262,7 @@ function Initialize-SubtitleWindow {
   $script:subPanel = New-Object System.Windows.Controls.StackPanel
   $script:subBorder.Child = $script:subPanel
   $script:subWindow.Content = $script:subBorder
+  Initialize-SubtitleMenu
   # Remember the drop point before a cue render can reposition the window.
   # `dragging` suppresses placement because DragMove's nested message loop
   # still lets the stdin timer deliver cues while the mouse is held down.
@@ -387,7 +413,7 @@ function Render-Cues {
 
 function Show-Subtitles {
   if (-not $script:subWindow.IsVisible) { $script:subWindow.Show() }
-  if ($script:hwndSub -ne [IntPtr]::Zero) { [RtNative]::KeepTopmost($script:hwndSub) }
+  if ($script:hwndSub -ne [IntPtr]::Zero -and -not $script:subMenuOpen) { [RtNative]::KeepTopmost($script:hwndSub) }
 }
 
 function Hide-Subtitles {
@@ -666,7 +692,7 @@ function Initialize-Timers {
   $script:topmostTimer = New-Object System.Windows.Threading.DispatcherTimer
   $script:topmostTimer.Interval = [TimeSpan]::FromSeconds(2)
   $script:topmostTimer.add_Tick({
-    if ($script:hwndSub -ne [IntPtr]::Zero -and $script:subWindow.IsVisible) { [RtNative]::KeepTopmost($script:hwndSub) }
+    if (-not $script:subMenuOpen -and $script:hwndSub -ne [IntPtr]::Zero -and $script:subWindow.IsVisible) { [RtNative]::KeepTopmost($script:hwndSub) }
   })
 
   $script:subtitleTimer = New-Object System.Windows.Threading.DispatcherTimer
@@ -860,6 +886,17 @@ function Run-Overlay {
   [System.Windows.Threading.Dispatcher]::Run()
 }
 
+# 无窗口自检：右键菜单已构建，且只有「停止翻译并关闭字幕」一项。
+function Run-SelfTestMenu {
+  $menu = New-SubtitleMenu
+  $items = @($menu.Items)
+  $header = if ($items.Count -gt 0) { [string]$items[0].Header } else { '' }
+  $ok = ($items.Count -eq 1 -and $header -eq '停止翻译并关闭字幕')
+  if (-not $ok) { $script:selfTestStatus = 1 }
+  $mark = if ($ok) { 'PASS' } else { 'FAIL' }
+  Write-Output ("{0} subtitle context menu: items={1} header={2}" -f $mark, $items.Count, $header)
+}
+
 function Run-SelfTestIcon {
   $icon = New-TrayIcon
   $ok = ($script:trayIconHandle -ne [IntPtr]::Zero)
@@ -881,6 +918,11 @@ if ($SelfTestRows -or $SelfTestHold) {
 
 if ($SelfTestPosition) {
   Run-SelfTestPosition
+  exit $script:selfTestStatus
+}
+
+if ($SelfTestMenu) {
+  Run-SelfTestMenu
   exit $script:selfTestStatus
 }
 

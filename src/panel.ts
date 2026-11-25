@@ -17,7 +17,6 @@ export interface PanelDeps {
   controller: Controller
   settings: () => ResolvedSettings
   sttStatus: () => string
-  persistence: () => boolean
   log: (message: string, error?: unknown) => void
 }
 
@@ -37,7 +36,6 @@ export interface PanelSnapshot {
     glossaryError: string | null
   }
   stt: string
-  persistence: boolean
 }
 
 export type PanelResult =
@@ -73,7 +71,6 @@ export function panelSnapshot(deps: PanelDeps): PanelSnapshot {
       glossaryError: deps.controller.glossaryError(),
     },
     stt: deps.sttStatus(),
-    persistence: deps.persistence(),
   }
 }
 

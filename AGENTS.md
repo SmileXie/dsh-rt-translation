@@ -25,8 +25,8 @@
 | --- | --- | --- |
 | `npm install` | 安装插件自身依赖 | 链接安装不会自动装，缺了插件加载失败 |
 | `dsh web --patch .\cordis.patch.yml` | 开发模式从本仓库加载 | 在 DSH 仓库用 `pnpm dsh ...`；必须用 `cordis.patch.yml`，不能传 bundle patch |
-| `npm test` | 单元/集成测试（`node --test`，120 个） | 提交前必须通过 |
-| `npm run test:overlay` | 行窗口 + 多屏位置自检（9 + 5 个断言，不弹窗） | 改 `overlay.ps1` 行选择/窗口定位后必跑 |
+| `npm test` | 单元/集成测试（`node --test`，122 个） | 提交前必须通过 |
+| `npm run test:overlay` | 行窗口 + 多屏位置 + 右键菜单自检（9 + 5 + 1 个断言，不弹窗） | 改 `overlay.ps1` 行选择/窗口定位/菜单后必跑 |
 | `npm run test:icon` | 托盘图标生成自检（`PASS tray icon 32x32`） | 改 `assets/icon.jpeg` / 图标代码后跑 |
 | `powershell ... overlay.ps1 -SelfTest` | 弹 1.5 秒字幕窗，验证 WPF 渲染 | 需要桌面会话 |
 | `powershell ... overlay.ps1 -SelfTestMeeting` | 同上，双语文案 | 名字是历史遗留，仅“双语” |
@@ -62,6 +62,7 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 | `src/index.ts` | 插件入口：接线 STT/LLM/渲染器/控制器，注册面板路由，启动 overlay |
 | `src/config.ts` | Schemastery `Config`、默认值、`resolveConfig`（**改默认值只改这里**） |
 | `src/controller.ts` | 生命周期、设置变更、长静音自动暂停、start/stop/quit |
+| `src/settings-store.ts` | `--patch` 开发模式下 Settings 无法写 profile 时的 profile 内 JSON 兜底 |
 | `src/pipeline.ts` | 采集→分段→识别→翻译→字幕编排；延迟统计 |
 | `src/capture.ts` | `loopback-capture` 封装（system / system-exclude-self / app） |
 | `src/stt.ts` | SenseVoice provider 封装（准备、串行转写） |
@@ -74,7 +75,7 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 | `src/subtitle/protocol.ts` | NDJSON 协议、动作白名单、`toStylePayload` |
 | `src/subtitle/renderer.ts` | `SubtitleRenderer` 接口（含可恢复的 `close()`） |
 | `src/subtitle/windows-wpf.ts` | 子进程管理、重启、close/dispose |
-| `assets/overlay/overlay.ps1` | WPF 叠加窗、托盘、热键、协议处理、行窗口、多屏定位与自检 |
+| `assets/overlay/overlay.ps1` | WPF 叠加窗、托盘、热键、协议处理、行窗口、多屏定位、右键菜单与自检 |
 | `client.js` | DSH 浏览器半：侧边栏入口、「实时翻译」页、fetch 轮询 |
 | `assets/icon.jpeg` | 托盘图标源图（缩放到 32×32） |
 | `cordis.bundle.patch.yml` | 安装进 profile 后由 `dsh plugin add` / Desktop 插件页读取的 bundle patch；**不要**传给 `--patch` |
@@ -115,6 +116,7 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 - 静音时保留历史，不自动关闭；**停止翻译**（⏸ / `/rt stop` / dispose）会清空并关闭字幕窗；`/rt restart` 不清屏。
 - 新译文出现后至少保留 `minReadMs` 才允许滚出，必要时短暂多显示一行（`maxLines + 1`）。
 - 字幕窗可鼠标拖动；拖动位置只在当前会话保持，初始位置底部居中。拖到任意显示器后都留在该屏幕，不会被主屏工作区钳回。没有顶部/底部配置。
+- 右键字幕窗弹出「停止翻译并关闭字幕」：等同 `/rt stop`（停止采集、清空并隐藏字幕），托盘与控制页仍在，可从 ▶ / `Ctrl+Alt+S` 再次开始。
 - 托盘：**左键**开始/停止；**右键只有「退出」**。退出只关闭 overlay/托盘，之后从控制页 ▶、`Ctrl+Alt+S` 或 `/rt start` 可重新拉起，无需重启 DSH。
 - 全局热键：`Ctrl+Alt+S`（开始/停止）、`Ctrl+Alt+C`（清屏）、`Ctrl+Alt+↑/↓`（字号）、`Ctrl+Alt+B`（双语）。
 - 已移除、不要无意加回：会议/影视模式与 `/rt mode`、片名术语表与 `/rt title`、独立 WPF 控制条与设置窗、鼠标热区、`Ctrl+Alt+H`、`/rt ui`、`ui.controlBar*`/`showStatusDot`、`subtitle.position`、`subtitle.display`。
@@ -122,7 +124,7 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 
 ## 6. 控制页接口
 
-- `GET /plugins/dsh-rt-translation/state`：返回 `{ ok, value: { state, subtitle, segment, autoPauseAfterMs, capture, translate, stt, persistence } }`。
+- `GET /plugins/dsh-rt-translation/state`：返回 `{ ok, value: { state, subtitle, segment, autoPauseAfterMs, capture, translate, stt } }`。
 - `POST /plugins/dsh-rt-translation/action`：body `{ action, value? }`，动作白名单见 `src/subtitle/protocol.ts` 的 `PANEL_ACTIONS`；背景相关动作是 `setBackground`、`setBrief`、`setGlossary`、`prepareGlossary`。
 - 鉴权：`webServer.register({ kind: 'exact', path, auth: 'required', handler })`；`webserver/authorize` 瀑布由 Connection 统一做 Host/Origin 栅栏 + DSH 会话校验，handler 只在准入后运行。**不要在 handler 里调用 `connection.requestRejection`**：当前 DSH 已移除该 API（v0.2.2-rc.2 起改用 `admit` / `connection.authentication`），调用会让已登录请求也返回 400。Connection 未就绪时 webServer 返回 503。
 - 路由用 `webServer.register` 注册，并监听 `internal/service` 事件在 `webServer` 晚绑定时重试（只等 `webServer`，不必等 `connection`）。**不要改用 `ctx.connection.rpc.handle` 自定义通道**：在本机 Desktop 组合里该通道不会落到 HTTP 路由（曾导致 405）。
@@ -157,6 +159,12 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 - 在 DSH 插件页「停用/启用」只会重新执行 **旧模块**（Node ESM 已缓存），不会加载新 Host 代码。
 - 改 `src/**` 或 `assets/overlay/**` 后，验证必须**完全退出 DSH（含托盘）再重开**。
 - 只改 `client.js` 时通常刷新页面（`Ctrl+R`）即可；client HMR 生效时会自动更新。
+
+### 设置持久化
+
+- 正常安装：`patchSettings` 调 `ctx.settings.update(entryId, patch)`，写进 DSH profile；这是首选路径。
+- `dsh web --patch`：命令行覆盖层（overlay）的 `config` 优先级高于 profile 补丁，`settings.update` 必然报 “overridden by ... command-line overlay”。`patchSettings` 捕获后写入 `<profile>/.dsh-rt-translation/settings.json`，文件带写入时的原始 Config 快照，只在该配置未变时恢复；之后某次 profile 写入成功会删除该文件。
+- 不要在控制页恢复「设置未写入 profile（仅内存）」提示；持久化失败只写日志（`%TEMP%\dsh-rt-translation.log` 也有 `settings ... failed` 行）。
 
 ### 类型检查
 
@@ -215,10 +223,11 @@ npm run test:icon
 1. 完全退出 DSH 并重开；打开 DSH 页面。
 2. 左侧导航应出现「实时翻译」；点开页面应显示「已停止」，点 ▶ → 准备模型 → 收听中。页面不覆盖对话内容。
 3. 播一段带语音的音频：最后一行是当前句，上方是历史；停止说话后历史保留。
-4. 拖动字幕窗到别处（多显示器下拖到副屏），继续说话/等新字幕时窗口应留在原处，不跳回主屏；调透明度、字号、行数、静音切分、单句最长、自动暂停应即时生效。
+4. 拖动字幕窗到别处（多显示器下拖到副屏），继续说话/等新字幕时窗口应留在原处，不跳回主屏；调透明度、字号、行数、静音切分、单句最长、自动暂停应即时生效；重启 DSH 后这些设置应保留（`dsh web --patch` 开发模式也一样）。
 5. ⏸ / `/rt stop` 应关闭字幕窗；再次 ▶ 应重新打开。
 6. 托盘左键开始/停止；右键只有「退出」；退出后从控制页再开始应能重新拉起托盘。
-7. 若控制页报错，先看 `%TEMP%\dsh-rt-translation.log`（`src/index.ts` 仍有临时诊断日志，验证稳定后可删）。
+7. 在字幕窗上点右键 → 选「停止翻译并关闭字幕」：采集停止、字幕消失，托盘和控制页仍在；点 ▶ 应能重新开始。
+8. 若控制页报错，先看 `%TEMP%\dsh-rt-translation.log`（`src/index.ts` 仍有临时诊断日志，验证稳定后可删）。
 
 ## 9. 隐私与安全
 

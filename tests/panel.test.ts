@@ -45,7 +45,6 @@ function deps(controller: ReturnType<typeof fakeController>) {
     controller: controller as never,
     settings: () => resolveConfig({}),
     sttStatus: () => '待机',
-    persistence: () => true,
     log: () => {},
   }
 }
