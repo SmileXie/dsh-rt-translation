@@ -275,7 +275,7 @@ test('setBackground / setBrief / setGlossary 写 profile 并互不影响', async
 
 test('prepareGlossary 写入摘要与词表并清空错误', async () => {
   const d = withPatch(fake())
-  d.settingsValue = resolveConfig({ translate: { background: '看《哈利·波特与魔法石》' } })
+  d.settingsValue = resolveConfig({ sourceLanguage: 'zh', translate: { background: '看《哈利·波特与魔法石》' } })
   d.translator.prepareResult = { brief: '魔法学校观影场景', glossary: ['Hermione=赫敏'] }
   const c = new Controller(d as never)
 
@@ -285,6 +285,19 @@ test('prepareGlossary 写入摘要与词表并清空错误', async () => {
   assert.equal(d.settingsValue.translate.backgroundBrief, '魔法学校观影场景')
   assert.deepEqual(d.settingsValue.translate.glossary, ['Hermione=赫敏'])
   assert.equal(c.glossaryError(), null)
+})
+
+test('prepareGlossary 源语言为自动时拒绝提炼', async () => {
+  const d = withPatch(fake())
+  d.settingsValue = resolveConfig({ sourceLanguage: 'auto', translate: { background: '看《哈利·波特与魔法石》' } })
+  const c = new Controller(d as never)
+
+  await c.prepareGlossary()
+
+  assert.equal(d.translator.prepareCalls, 0)
+  assert.match(c.glossaryError() ?? '', /源语言/)
+  assert.equal(d.settingsValue.translate.backgroundBrief, '')
+  assert.deepEqual(d.settingsValue.translate.glossary, [])
 })
 
 test('prepareGlossary 背景为空时不调用模型', async () => {
@@ -299,7 +312,7 @@ test('prepareGlossary 背景为空时不调用模型', async () => {
 
 test('prepareGlossary 失败保留旧值并记录错误', async () => {
   const d = withPatch(fake())
-  d.settingsValue = resolveConfig({ translate: { background: '电影', backgroundBrief: '旧摘要', glossary: ['旧=旧词'] } })
+  d.settingsValue = resolveConfig({ sourceLanguage: 'zh', translate: { background: '电影', backgroundBrief: '旧摘要', glossary: ['旧=旧词'] } })
   d.translator.prepareError = new Error('down')
   const c = new Controller(d as never)
 
@@ -312,7 +325,7 @@ test('prepareGlossary 失败保留旧值并记录错误', async () => {
 
 test('prepareGlossary 空结果保留旧值并给出提示', async () => {
   const d = withPatch(fake())
-  d.settingsValue = resolveConfig({ translate: { background: '电影', backgroundBrief: '旧摘要', glossary: ['旧=旧词'] } })
+  d.settingsValue = resolveConfig({ sourceLanguage: 'zh', translate: { background: '电影', backgroundBrief: '旧摘要', glossary: ['旧=旧词'] } })
   d.translator.prepareResult = { brief: '', glossary: [] }
   const c = new Controller(d as never)
 

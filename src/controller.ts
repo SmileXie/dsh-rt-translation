@@ -217,6 +217,11 @@ export class Controller {
       this.emit()
       return
     }
+    if (settings.sourceLanguage === 'auto') {
+      this.glossaryErrorValue = '请先在「语言」里选择源语言——「自动」时无法提炼背景与词表'
+      this.emit()
+      return
+    }
     try {
       const result = await this.deps.translator.prepareGlossary({
         background,
