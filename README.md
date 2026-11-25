@@ -7,6 +7,7 @@ DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播
 ## 能做什么
 
 - 源语言：自动、中文、English、日本語、한국어、粤语；目的语言：中/英/日/韩/粤。
+- 翻译背景：填一段作品/话题背景，一次提炼出「背景摘要」和「术语表」；摘要每句注入，术语只注入本句命中的条目（≤12 条）。
 - 字幕支持 2–5 行滚动历史：最后一行为当前正在说的话，上方几行为最近几句话，每行都带原文与译文。
 - 字幕窗在收听时持续显示：静音时保留最近几行历史，不会自动消失；停止翻译后关闭。
 - 单一配置（默认取原会议参数）：静音切分、单句最长、自动暂停，以及行数、双语、阅读时间都可在左侧「实时翻译」页调整。
@@ -23,10 +24,10 @@ DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播
 | DSH | 可正常启动的 DeepSeek Harness | 用 DSH 自带的 Node 24 CLI 即可，不需要单独安装 Node |
 | 插件依赖 | 仓库根目录执行一次 `npm install` | 提供 `@deepseek-ai/schemastery` 与 `loopback-capture`；链接安装不会自动安装它们，缺了插件会加载失败、`/rt` 不出现 |
 | LLM 路由 | 任一可用 provider + model | 默认跟随 DSH 当前默认模型；也可 `/rt model <provider> <model>` 覆盖 |
-| 语音识别 | 无需单独安装 | bundle 已挂载 `speech-to-text` 与 SenseVoice provider；可用 `/rt prepare` 提前下载约 240 MB 模型 |
+| 语音识别 | 无需单独安装 | bundle 已挂载 `speech-to-text` 与 SenseVoice provider；可在「实时翻译」页点「准备模型」提前下载约 240 MB 模型 |
 | PowerShell | Windows 自带的 Windows PowerShell 5.1 | 字幕窗是 WPF overlay；脚本必须以 UTF-8 BOM 保存 |
 | 音频设备 | 默认输出设备能正常播放 | 采集系统回环，不需要麦克风，也不依赖虚拟声卡 |
-| 网络 | 首次 `/rt prepare` 或 `/rt start` 准备模型时需要 | 模型缓存后识别可离线；翻译仍需要 LLM 可用 |
+| 网络 | 首次准备模型（「准备模型」按钮或 ▶）时需要 | 模型缓存后识别可离线；翻译仍需要 LLM 可用 |
 
 ## 安装
 
@@ -35,7 +36,7 @@ DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播
 - Windows 11，或 Windows 10 build 20348 以上。
 - 已安装 DeepSeek Harness Desktop（推荐），或已安装带 `dsh` 命令的 DSH CLI／源码仓库。没有全局 `dsh` 时，可以在 DSH 仓库里使用 `pnpm dsh`。
 - DSH 中有可用的 LLM provider 与 model，供翻译调用。
-- 第一次使用前需要约 240 MB 的 SenseVoice 模型，安装后可执行 `/rt prepare` 提前下载。
+- 第一次使用前需要约 240 MB 的 SenseVoice 模型，安装后可在左侧「实时翻译」页点「准备模型」提前下载。
 
 ### 方式一：在 DeepSeek Harness Desktop 中安装（推荐桌面用户）
 
@@ -55,26 +56,19 @@ npm install
 
 安装完成后点击「立即启用」。如果页面提示需要重启，请完全退出 DeepSeek Harness（不只是关闭窗口）后再重新打开，让插件由 Desktop profile 重新加载。
 
-4. 回到「插件」页确认已出现 `dsh-rt-translation`，并且包含 `speech-to-text`、`speech-to-text-sensevoice`、`rt-translation` 三个条目。
+4. 回到「插件」页确认已出现 `dsh-rt-translation`。
 
-Desktop 安装会沿用当前 Desktop profile 已配置的 LLM，不需要复制 CLI `rt` profile 的模型配置。若翻译路由仍未准备好，请先在 Desktop 的模型设置中配置一个可用模型。
-
-本地目录会以链接方式安装，克隆目录需要保留。如果移动或删除了目录，请先在「插件」页卸载插件，再从新路径重新安装。
+Desktop 安装会沿用当前 Desktop profile 已配置的 LLM。若翻译路由仍未准备好，请先在 Desktop 的模型设置中配置一个可用模型。
 
 ### 方式二：通过 CLI 作为 bundle 安装
 
 把插件装进独立的 `rt` profile，之后用 `dsh --profile rt` 启动，不影响默认 profile。
 
-1. 获取项目。克隆仓库，或从 GitHub 下载 ZIP 后解压，再进入项目根目录。
+1. 获取项目，并记下仓库根目录的绝对路径，安装插件自身的依赖。
 
 ```powershell
 git clone https://github.com/SmileXie/dsh-rt-translation.git
 cd dsh-rt-translation
-```
-
-2. 安装插件自身的依赖。链接安装不会安装仓库的 `dependencies`，跳过这一步插件会加载失败，`/rt` 不会出现。
-
-```powershell
 npm install
 ```
 
@@ -137,45 +131,21 @@ dsh web --patch .\cordis.patch.yml
 pnpm dsh web --patch <插件目录的绝对路径>\cordis.patch.yml
 ```
 
-### 安装后预下载模型（推荐）
+### 启动并预下载模型
 
 安装完成后先启动一次 DSH：
 
 - Desktop 安装：从托盘完全退出后重新打开 DeepSeek Harness Desktop。
-- CLI bundle 安装：运行下面的命令。`dsh --profile rt`
-- 开发模式：把下面的命令换成 `dsh web --patch .\cordis.patch.yml`。
+- CLI bundle 安装：运行 `dsh --profile rt`，再打开 DSH 页面。
+- 开发模式：在仓库根目录运行 `dsh web --patch .\cordis.patch.yml`，再打开页面。
 
-在 DeepSeek Harness Desktop 或 DSH Web 的任意会话中发送：
+打开左侧导航「实时翻译」，在「操作」卡片点「准备模型」：
 
-```text
-/rt prepare
-```
+- 按钮会下载并校验 SenseVoice 权重、词表和 VAD，然后加载识别器。这个过程不会开始字幕采集，也不会弹出字幕窗。
+- 进度看同一个页面「状态」卡片里的「识别」，例如 `下载中 42%（99.8 MB / 228.1 MB）`。顶部状态仍显示「已停止」是正常的，准备模型不会开始收听。
+- 模型已经缓存时，点按钮会直接完成，不会重复下载。
 
-命令会下载并校验 SenseVoice 权重、词表和 VAD，然后加载识别器。这个过程不会开始字幕采集，也不会弹出字幕窗。用 `/rt status` 查看进度，例如：
-
-```text
-识别: 下载中 42%（99.8 MB / 228.1 MB）
-```
-
-如果模型已经缓存，`/rt prepare` 会直接完成，不会重复下载。「识别」变成「待机」或「就绪」后，`/rt start` 会直接开始收听。模型默认保存在 `$env:USERPROFILE\.dsh\speech-to-text\sensevoice`。跳过这一步时，首次 `/rt start` 也会下载，只是开始收听需要等待下载完成。
-
-## 启动
-
-```powershell
-# 启动并自动打开 DSH Web
-dsh --profile rt
-
-# 或者只启动服务，不打开浏览器
-dsh --profile rt --no-open
-```
-
-启动成功后：
-
-- 任务栏托盘显示插件图标（`assets/icon.jpeg` 缩放到 32×32），`powershell` overlay 进程开始常驻。
-- 托盘右键「退出」会关闭托盘与字幕窗；之后在左侧「实时翻译」页点 ▶、按 `Ctrl+Alt+S` 或发 `/rt start` 会重新拉起 overlay 和托盘，不需要重启 DSH。
-- 字幕窗默认隐藏；DSH 左侧导航会出现「实时翻译」入口（没有出现时刷新页面，或完全退出 DSH 后重开）。
-- 托盘右键只有「退出」；语言、字号、行数、透明度、切分参数等都在左侧「实时翻译」页或命令里。
-- 托盘与全局热键不依赖 DSH 网页窗口；控制页在 DSH 页面内，斜杠命令需要 DSH 会话。
+「识别」变成「待机」或「就绪」后，回到页面顶部点 ▶ 会直接开始收听。模型默认保存在 `$env:USERPROFILE\.dsh\speech-to-text\sensevoice`。跳过这一步也可以：第一次点 ▶ 时会先下载模型，状态点变黄，下载/加载完成后自动进入收听，只是要多等一会儿。
 
 ## 使用
 
@@ -184,16 +154,20 @@ dsh --profile rt --no-open
 1. 在左侧导航点「实时翻译」打开控制页；不需要唤出额外窗口，也不会盖住对话。
 2. 选择源语言与目的语言（例如 `自动 → English`）。
 3. 点 ▶，或左键点托盘图标，或按 `Ctrl+Alt+S`，或发送 `/rt start`。
-4. 如果还没有执行过 `/rt prepare`，这里会下载 SenseVoice 模型：状态点变黄，下载/加载完成后自动进入收听。
+4. 如果还没有点过「准备模型」（模型尚未缓存），点 ▶ 后状态点会变黄，页面显示「准备模型…」，下载/加载完成后自动进入收听；已经准备过则直接开始。
 5. 播放视频或加入会议，字幕出现在屏幕底部（默认字号 20、3 行）。
 
-默认显示 3 行（可 2–5）：最下面一行是当前正在说的话（先出原文，译文流式补上），上面几行是最近几句话，旧行逐渐变暗并在超出设定行数后滚出。默认显示「小字原文 + 大字译文」。字幕窗可以用鼠标直接拖动到你习惯的位置（多显示器下拖到哪个屏幕就留在哪个屏幕）；停止说话后历史行会保留，停止翻译（⏸ / `/rt stop`）时字幕窗关闭。
+默认显示 3 行（可 2–5）：最下面一行是当前正在说的话（先出原文，译文流式补上），上面几行是最近几句历史，历史行整体更暗（约 70% 不透明度；双语时的小字原文还会再淡一些）。新译文出现后至少保留「阅读」设定的时间（默认 1.8 秒）才允许滚出，必要时会临时多显示一行（最多比设定行数多 1 行）。默认显示「小字原文 + 大字译文」。字幕窗可以用鼠标直接拖动到你习惯的位置（多显示器下拖到哪个屏幕就留在哪个屏幕）；停止说话后历史行会保留，停止翻译（⏸ / `/rt stop`）时字幕窗关闭。
+
+> **建议先做**：按 [翻译背景与术语](#翻译背景与术语) 填一段背景并点「提炼背景并生成词表」。人名、作品名和术语会稳定很多；不提炼也能正常翻译。
 
 ### 日常操作
 
 | 想做什么 | 操作 |
 | --- | --- |
 | 开始 / 停止 | 左侧「实时翻译」页 ▶/⏸、托盘左键、`Ctrl+Alt+S`、`/rt start` / `/rt stop` |
+| 准备模型 | 控制页「操作 → 准备模型」（只下载并加载模型，不开始采集） |
+| 填翻译背景 / 提炼词表 | 控制页「翻译背景」→「提炼背景并生成词表」 |
 | 切换语言 | 控制页两个下拉框、`/rt lang auto en` |
 | 静音切分 | 控制页「分段 → 静音切分」 |
 | 单句最长 | 控制页「分段 → 单句最长」 |
@@ -205,26 +179,43 @@ dsh --profile rt --no-open
 | 原文/双语 | `Ctrl+Alt+B`，或控制页「显示原文」勾选 |
 | 清屏 | `Ctrl+Alt+C`，或控制页「清屏」 |
 | 恢复默认配置 | 控制页「默认配置」（重置切分、自动暂停与字幕，清空翻译背景/摘要/术语，语言保持不变） |
-| 重新连接音频 | 控制页「重连音频」、`/rt restart` |
+| 重新连接音频 | 控制页「重连音频」、`/rt restart`（停止状态下会直接开始收听） |
 | 只看某个应用的声音 | `/rt app chrome.exe`，`/rt app off` 恢复系统声音 |
 
-`/rt stop` 停止采集并关闭字幕窗，左侧「实时翻译」页仍可随时打开，overlay 与托盘继续常驻，随时可以再次开始。再次开始后从空历史重新累积。
+## 翻译背景与术语
 
-### 不采音频先调样式
+实时字幕逐句翻译，默认只带最近两轮上下文。模型不知道你在看哪部作品、这场分享的产品和缩写是什么，人名、作品名和术语就容易前后不一致。开始前花一分钟填「翻译背景」并提炼一次，能明显改善这类问题。
 
-```text
-/rt test 你好世界
-```
+### 推荐流程
 
-`/rt test` 要等翻译完成后才上屏；该行会一直保留，直到下一次清屏或被新句子顶掉。
+1. 先在「语言」里选定源语言。源语言为「自动」时不会调用模型，面板会提示先选源语言；目的语言决定摘要和术语译文使用的语言。
+2. 在「翻译背景」里写清你在听什么：作品、产品或项目名，主要人物，场景，领域，以及你有把握的译法。最多 2000 字；背景为空时按钮不可点。例如：
+   > 在看《哈利·波特与魔法石》的解说。Harry、Hermione、Ron 是主要人物；Hogwarts 译作霍格沃茨，Muggle 译作麻瓜，Quidditch 译作魁地奇。
+3. 点「提炼背景并生成词表」。插件用当前翻译模型做一次调用（最长 60 秒），生成「背景摘要」和「术语」。
+4. 检查结果并按需修改：摘要可直接编辑（最多 300 字）；术语每行一条「原文=译文」，可增删改。术语超过 8 条时可点「展开」查看；「清空术语」需要再点一次确认。
+5. 点 ▶ 开始收听。摘要非空时，之后每句翻译都会带上它；本句命中的术语也会一起注入（不区分大小写，最多 12 条）。收听中修改也会从下一句开始生效，不需要重启。
 
-### 验证安装
+如果暂时不想调用模型，可以跳过第 3 步：直接手填摘要和术语同样有效；只填「翻译背景」而不提炼，不会改变逐句翻译。
 
-```text
-/rt status
-```
+### 三个字段的区别
 
-应看到 `状态: idle`、`识别: 待机`，且「翻译」显示可用的 provider / model。播放一段语音后，`延迟` 的样本数会增加。
+| 字段 | 作用 | 限制 |
+| --- | --- | --- |
+| 翻译背景 | 给提炼用的原始描述；只用于生成摘要和词表，不会逐句发给模型 | 最多 2000 字 |
+| 背景摘要 | 每句翻译都会带上，说明在听什么、谁是谁；留空则不注入 | 最多 300 字 |
+| 术语 | 每行一条「原文=译文」；翻译时只注入本句原文里出现的词条 | 最多 1000 行、每行 120 字符；空行和重复行会被忽略 |
+
+摘要、术语和背景都会写回 profile，重启 DSH 后仍然保留；如果页面提示「设置未写入 profile（仅内存）」，则只在当前进程有效。点「默认配置」会清空这三项，但不会改语言和模型路由。
+
+提炼时会把背景原文发送给当前翻译模型一次；之后逐句请求带的是摘要、命中的术语（≤12 条）以及当前句和最近上下文，不会重复发送整段背景，所以术语表可以写得长一些。
+
+### 适合先用起来的场景
+
+- 影视、动漫、游戏解说：人名、地名、作品名和招式名前后一致。
+- 技术分享、课程、发布会：缩写、产品名、标准名按行业惯用译法输出。
+- 会议、访谈：提前写清参会人、公司和项目代号，减少指代错误。
+
+提炼失败时，按钮旁会显示原因（例如源语言为「自动」、没有可用的翻译模型、超时或未生成内容）；按提示修正后再点一次即可。
 
 ## 卸载
 
@@ -235,8 +226,6 @@ dsh plugin --profile rt remove dsh-rt-translation
 如需同时删除模型缓存，删除 `$env:USERPROFILE\.dsh\speech-to-text\sensevoice`。运行期设置保存在 `rt` profile 的 `cordis.patch.yml`，默认是 `$env:USERPROFILE\.dsh\profiles\rt\cordis.patch.yml`。
 
 ## 分段与自动暂停
-
-不再区分「会议/影视」模式；默认值取原会议参数。以下参数都能在左侧「实时翻译」页里直接调，改动会持久化到 profile：
 
 | 设置 | 默认 | 范围 | 说明 |
 | --- | --- | --- | --- |
@@ -307,57 +296,13 @@ dsh plugin --profile rt remove dsh-rt-translation
 - 多显示器 DPI 不同时按主显示器缩放。
 - 指定应用模式取该进程名下的第一个 PID；同名多实例暂不区分。
 - v1 只支持 Windows；Linux 的扩展点见下节。
-- 首次准备语音模型时控制页只显示「准备模型…」，暂时没有细粒度下载进度条和中途取消按钮。
+- 准备语音模型时没有进度条和中途取消按钮；下载进度只以文字显示在「状态 → 识别」，点 ▶ 触发准备时顶部还会显示「准备模型…」。
 - 控制页暂时没有「翻译模型」选择；请用 `/rt model <provider> <model>`。
 - 强制切分长句后，重叠部分的文本去重尚未实现。
 - 字体默认使用统一字体，尚未按目的语言自动选择字体；多显示器只按主显示器定位。
 - `debug.dumpAudioDir` 尚未接入，不会把音频落盘。
 - 托盘图标使用 `assets/icon.jpeg`（自动缩放为 32×32）；替换该文件后重启 DSH 即可换图标。
 - 控制页在左侧导航里，不会覆盖对话；侧边栏收起时只显示图标。
-
-## 自检与排障
-
-验证托盘图标能从 `assets/icon.jpeg` 生成（输出 `PASS tray icon 32x32`，退出码 0）：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File assets/overlay/overlay.ps1 -SelfTestIcon
-```
-
-只验证多行滚动窗口与多屏定位（不弹窗，9 + 5 个断言，退出码 0）：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File assets/overlay/overlay.ps1 -SelfTestRows
-powershell -NoProfile -ExecutionPolicy Bypass -File assets/overlay/overlay.ps1 -SelfTestPosition
-```
-
-只验证 WPF 叠加窗（1.5 s 示例字幕，退出码 0）：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File assets/overlay/overlay.ps1 -SelfTest
-```
-
-验证双语文案也能显示：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File assets/overlay/overlay.ps1 -SelfTestMeeting
-```
-
-检查 overlay 是否在运行：
-
-```powershell
-Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
-  Where-Object { $_.CommandLine -like '*overlay.ps1*' } |
-  Select-Object ProcessId, CommandLine
-```
-
-常见问题：
-
-- 输入框里没有 `/rt`、或发了命令没有反应：插件入口没有加载成功，不是命令没注册。先确认仓库根目录执行过 `npm install`，且 `node_modules\@deepseek-ai\schemastery`、`node_modules\loopback-capture` 都存在；再在 Desktop「插件」页把 `dsh-rt-translation` 停用后重新启用（或完全退出 DSH 后重开），让入口重新加载。恢复后托盘和 overlay 进程也会一起出现。
-- 看不到托盘：先跑上面的 `-SelfTest`；若自检正常，检查 DSH 启动日志里是否有 `[rt-translation] overlay start failed`。
-- 没有译文：`/rt status` 看「翻译」路由；没有默认模型时用 `/rt model <provider> <model>`。
-- 没有声音：确认播放设备是默认输出；指定应用模式确认进程名（如 `chrome.exe`）。
-- 模型选择器显示「暂无可用模型」：当前 profile 缺少 LLM provider 配置，按「作为 bundle 安装」一节的 YAML 补到 profile 的 `cordis.patch.yml` 后重启。
-- 首次 `/rt start` 长时间停在「准备中」：正在下载约 240 MB 的 SenseVoice 模型。安装后先执行 `/rt prepare` 可以避免这段等待，`/rt status` 会显示下载百分比；模型缓存后不会再下载。
 
 ## 架构与 Linux 扩展点
 
@@ -377,46 +322,3 @@ loopback-capture (PCM 48k stereo)
 - `src/subtitle/windows-wpf.ts` + `assets/overlay/overlay.ps1`：实现 `SubtitleRenderer` 接口即可换成 GTK/Qt/其他叠加窗；协议、控制器、命令和翻译链路不需要改。
 
 `src/index.ts` 在非 Windows 平台会明确报错，避免半可用状态。
-
-## 已验证
-
-### 自动化回归（2026-11-24）
-
-- `npm test`：77/77 通过（含面板路由与快照/动作测试）。
-- `overlay.ps1 -SelfTestRows`：9/9 通过（行窗口、当前句在最后一行、译文最短阅读、静音后保留历史行）。
-- `overlay.ps1 -SelfTestIcon`：`PASS tray icon 32x32`，退出码 0。
-- `overlay.ps1 -SelfTest`、`-SelfTestMeeting` 均输出 `selftest window visible=True`，退出码 0。
-- NDJSON 冒烟（`style` / `ui` / `cue` / `clear` / `shutdown`）正常退出。
-- `npm run typecheck` 仍受本地 checkout 路径缺失影响，见交接文档。
-
-### 多显示器拖动回归（2026-11-25）
-
-- `overlay.ps1 -SelfTestPosition`：5/5 通过（初始底部居中、右侧/负坐标副屏保持、副屏下缘不被主屏钳制、非法坐标回退）。
-- `-SelfTestRows` 9/9、`-SelfTestIcon` 1/1、`-SelfTest` 退出码 0，无回归。
-- 单元测试 91/91（本机沙箱内用 `node --test --test-isolation=none "tests/**/*.test.ts"` 等价运行）。
-- 真机多屏拖动仍需人工确认：拖到副屏后继续出字幕应留在副屏。
-
-### 真机验收（Windows 11 + DSH Web + `qwen-token-plan-cn / deepseek-v4.1-flash`）
-
-- 系统回环采集（`system-exclude-self`）→ SenseVoice → LLM 翻译 → WPF 字幕全链路可用。
-- 中文语音 → 英文：4 个样本，P50 975 ms / P90 1417 ms；分段队列 0 ms、识别 73 ms、首字 834 ms。
-- 英译中：先显示实时原文，译文到达后同一行补上译文；上方几行保留最近几句，最后一行为当前句。
-- 默认显示小字原文 + 大字译文；行数 3（可 2–5）。左侧「实时翻译」页含状态、播放、源/目的语言、静音切分、单句最长、自动暂停、字号、行数、透明度与阅读时间。
-- overlay 窗口置顶、透明、不进任务栏；可用鼠标直接拖动，拖动后会保持当前位置。
-- `/rt stop` 后 5 秒：DSH Node 进程 CPU 约 0.28%、overlay 约 0.11%（20 核占比）；overlay 进程保留，热键可再次开始。
-- 全局热键：`Ctrl+Alt+S` 从停止态到 `preparing → listening` 约 40 ms；`Ctrl+Alt+C` 清屏；`Ctrl+Alt+B` 切换双语。
-- `/rt lang`、`/rt model`、控制页里的切分/字幕设置都会持久化到 profile，重启 DSH 后保持。
-
-`/rt test <text>` 在翻译完成后才上屏，并常驻到下一次清屏。截图验证时请使用 DPI-aware 工具，否则在 200% 缩放下会截到字幕上方区域。
-
-### 尚未人工验收
-
-- 左侧「实时翻译」入口与页面在重启/刷新后的实际加载（`dsh.client` 浏览器半）。
-- 多显示器：把字幕窗拖到副屏后，继续出字幕是否稳定留在副屏（2026-11-25 修复）。
-- 真实会议软件共享整个屏幕时的字幕可见性。
-- 2–5 行历史在连续对白下的滚动与遮挡效果（10 分钟压测）。
-- 拔插耳机或切换默认输出设备后的自动恢复与 `/rt restart`。
-- 独占全屏播放器上的置顶限制提示（控制页状态行）。
-- 托盘左键开始/停止、右键退出；托盘退出后可从控制页或 `/rt start` 重新拉起。
-- 中/英/日/韩/粤五语种音频两两互译矩阵（当前系统 TTS 只覆盖中/英）。
-- 首次模型下载的进度显示与中途取消。
