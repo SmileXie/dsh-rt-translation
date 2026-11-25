@@ -8,7 +8,7 @@ const TARGETS = new Set(['zh', 'en', 'ja', 'ko', 'yue'])
 
 const BACKGROUND_MAX = 2000
 const BRIEF_MAX = 300
-const GLOSSARY_MAX = 200
+const GLOSSARY_MAX = 1000
 const GLOSSARY_LINE_MAX = 120
 
 function clamp(value: number, min: number, max: number): number {

@@ -1,4 +1,4 @@
-﻿# AGENTS.md
+# AGENTS.md
 
 > 本文件写给在本仓库工作的 AI Agent 与开发者。先读这里，再读 [README](README.md) 和 [当前交接文档](docs/handoff-2026-11-24.md)。
 > 以代码与实际命令输出为准；历史设计文档里已被取代的行为（会议/影视模式、片名术语表、独立悬浮控制条、顶部/底部位置等）不要作为实现依据。
@@ -93,7 +93,7 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 | `stt` | `sensevoice-local`，临时结果开，900 ms | |
 | `translate` | 不指定 provider/model（跟随 DSH 默认），上下文 2 轮 | |
 | `translate.background` / `translate.backgroundBrief` | `''` / `''` | 控制页「翻译背景」原始输入与提炼摘要（≤2000 / ≤300 字符）；摘要每句进 prompt |
-| `translate.glossary` | `[]` | 术语表（≤200 行 × 120 字符），可直接写 profile；每句只注入命中的 ≤12 条 |
+| `translate.glossary` | `[]` | 术语表（≤1000 行 × 120 字符），可直接写 profile；每句只注入命中的 ≤12 条 |
 | `segment.silenceMs` | 550 ms（100–3000） | 静音切分；短于正常分句停顿会把一句切成两半 |
 | `segment.maxSegmentMs` | 8000 ms（1000–30000） | 单句最长 |
 | `segment.preRollMs` | 400 ms（0–1000） | 句首缓冲，兜住轻声起句 |

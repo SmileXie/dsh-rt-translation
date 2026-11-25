@@ -192,7 +192,7 @@ window.__ModuleLoader__.load({
 
     /** Apply the Host's glossary caps while typing so the textarea never shows text that will be dropped. */
     function clampGlossaryText(text) {
-      return text.split(/\r?\n/).slice(0, 200).map(line => line.slice(0, 120)).join('\n')
+      return text.split(/\r?\n/).slice(0, 1000).map(line => line.slice(0, 120)).join('\n')
     }
 
     /** Sidebar glyph: a subtitle frame with two text lines, drawn in `currentColor`. */
@@ -372,7 +372,7 @@ window.__ModuleLoader__.load({
         !glossaryCollapsed && glossary.length === 0
           ? h('div', { style: P.hint }, '暂无术语，可手填，或先填背景再点「提炼背景并生成词表」。')
           : null,
-        h('div', { style: P.hint }, '最多 200 行、每行 120 字符，超出会即时截断；翻译时只注入本句出现的词条（≤12 条），空行与重复行会被忽略。'),
+        h('div', { style: P.hint }, '最多 1000 行、每行 120 字符，超出会即时截断；翻译时只注入本句出现的词条（≤12 条），空行与重复行会被忽略。'),
       )
 
       return h('div', { style: P.page },

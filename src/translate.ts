@@ -90,9 +90,12 @@ export function buildPreparePrompt(req: Omit<PrepareRequest, 'signal'>): { syste
     `At most three sentences, at most 120 characters, in ${NAMES[req.target]}: what is being discussed, which people/works/concepts are involved, and the setting.`,
     '',
     '[术语]',
-    'Only proper nouns and domain terms whose rendering matters, one per line as original=translation, at most 60 entries.',
-    'No numbering, no bullets, no explanations, no Markdown. If the background only names a work, you may add key characters and settings you are confident about; never invent uncertain details.',
-    'If nothing useful can be extracted, output an empty [摘要] section and no entries.',
+    'Build a working glossary for this session: the proper nouns, product names, standards, acronyms and domain terms the speakers are likely to use, one per line as original=industry-standard target translation.',
+    'Aim for breadth: at least 20 entries for a technical or business topic, up to 200 for a rich one. When both are likely to be spoken, list a full form and its common abbreviation or alias as separate entries.',
+    'Keep each entry a short term, not a sentence, and always use the same target rendering. Do not translate word-for-word when the industry has an established term.',
+    'Format example (source Chinese, target English): 大语言模型=large language model; 微调=fine-tuning. When the direction is reversed, keep the same order: original=translation.',
+    'No numbering, no bullets, no explanations, no Markdown. If the background only names a work, you may add key characters, places and settings you are confident about; never invent uncertain details.',
+    'If the background is too vague to extract anything useful, output an empty [摘要] section and no entries.',
   ].join('\n')
   return { system, user: `[Background]\n${req.background}` }
 }
@@ -118,7 +121,7 @@ function cleanEntries(lines: string[]): string[] {
     if (seen.has(key)) continue
     seen.add(key)
     out.push(`${from}=${to}`.slice(0, 120))
-    if (out.length >= 80) break
+    if (out.length >= 1000) break
   }
   return out
 }
@@ -203,7 +206,7 @@ export class Translator {
       model: route.model,
       system,
       messages: [{ role: 'user', content: [{ type: 'text', text: user }] }],
-      maxTokens: 2000,
+      maxTokens: 4000,
       temperature: 0.2,
       signal: req.signal,
     })

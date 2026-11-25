@@ -87,6 +87,8 @@ test('buildPreparePrompt 要求摘要与原文=译文格式，并带目标语言
   assert.ok(system.includes('Chinese'))
   assert.ok(system.includes('[摘要]') && system.includes('[术语]'))
   assert.ok(system.includes('='))
+  assert.ok(system.includes('industry-standard'))
+  assert.ok(system.includes('at least 20'))
   assert.ok(user.includes('看《哈利·波特与魔法石》'))
 })
 
@@ -107,13 +109,13 @@ test('parseModelPrep 容忍 CRLF 与缺少标记的退化输出', () => {
   })
 })
 
-test('parseModelPrep 压缩摘要为一行并截断，词表上限 80', () => {
+test('parseModelPrep 压缩摘要为一行并截断，词表上限 1000', () => {
   const brief = parseModelPrep('[摘要]\n第一行\n第二行\n[术语]').brief
   assert.equal(brief, '第一行 第二行')
   const long = parseModelPrep(`[摘要]\n${'摘'.repeat(400)}`).brief
   assert.equal(long.length, 300)
-  const lines = Array.from({ length: 90 }, (_, i) => `t${i}=词${i}`).join('\n')
-  assert.equal(parseModelPrep(`[术语]\n${lines}`).glossary.length, 80)
+  const lines = Array.from({ length: 1100 }, (_, i) => `t${i}=词${i}`).join('\n')
+  assert.equal(parseModelPrep(`[术语]\n${lines}`).glossary.length, 1000)
 })
 
 test('prepareGlossary 走翻译路由并解析模型输出', async () => {

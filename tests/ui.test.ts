@@ -69,12 +69,13 @@ test('parseBrief 压成一行并截断 300', () => {
   assert.equal(parseBrief(42), undefined)
 })
 
-test('parseGlossaryPatch 去空、去重、限 200 行与 120 字符', () => {
+test('parseGlossaryPatch 去空、去重、限 1000 行与 120 字符', () => {
   assert.deepEqual(parseGlossaryPatch([' a ', '', 'a', 'b']), ['a', 'b'])
   assert.deepEqual(parseGlossaryPatch('a\nb'), ['a', 'b'])
   assert.deepEqual(parseGlossaryPatch(''), [])
   assert.equal(parseGlossaryPatch(42), undefined)
-  assert.equal(parseGlossaryPatch(Array.from({ length: 250 }, (_, i) => `t${i}`))?.length, 200)
+  assert.equal(parseGlossaryPatch(Array.from({ length: 250 }, (_, i) => `t${i}`))?.length, 250)
+  assert.equal(parseGlossaryPatch(Array.from({ length: 1200 }, (_, i) => `t${i}`))?.length, 1000)
   assert.equal(parseGlossaryPatch(['x'.repeat(200)])?.[0].length, 120)
 })
 
