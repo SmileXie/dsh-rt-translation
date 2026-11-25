@@ -1,10 +1,11 @@
 /**
- * Browser half of dsh-rt-translation: the control bar inside the DSH window.
+ * Browser half of dsh-rt-translation.
  *
- * The WPF overlay keeps drawing subtitles on the desktop; this bundle replaces
- * the old standalone WPF control bar by rendering the same controls in the
- * frame-wide `shell.overlay` slot and driving the Host through the authenticated
- * Connection RPC channel `/rt-translation`.
+ * The WPF overlay keeps drawing subtitles on the desktop. The controls live in
+ * the app shell itself: a "实时翻译" entry in the left sidebar (`sidebar.panellist`)
+ * and the page it opens in the main column (`main`, keyed by the same id), the
+ * way the shipped Plugins and Schedule pages are built. Nothing floats over the
+ * conversation any more.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-rt-translation',
@@ -13,6 +14,8 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const { useCallback, useEffect, useRef, useState } = React
 
+    /** Shared by the sidebar entry and the main page it selects. */
+    const PANEL_ID = 'rt-translation'
     const STATE_URL = '/plugins/dsh-rt-translation/state'
     const ACTION_URL = '/plugins/dsh-rt-translation/action'
     const POLL_MS = 1500
@@ -36,91 +39,40 @@ window.__ModuleLoader__.load({
     const READ_OPTIONS = [['0.8 秒', '800'], ['1.2 秒', '1200'], ['1.8 秒', '1800'], ['2.5 秒', '2500'], ['3.5 秒', '3500']]
     const AUTO_PAUSE_OPTIONS = [['关闭', '0'], ['1 分钟', '60000'], ['2 分钟', '120000'], ['5 分钟', '300000'], ['10 分钟', '600000']]
 
+    /** Control-level styles shared by every row of the page. */
     const S = {
-      root: {
-        position: 'absolute',
-        right: 16,
-        bottom: 16,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'flex-end',
-        gap: 8,
-        pointerEvents: 'none',
-        fontFamily: 'inherit',
-        fontSize: 12,
-        lineHeight: 1.45,
-        color: 'var(--dsw-alias-label-primary)',
-      },
-      pill: {
-        pointerEvents: 'auto',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 7,
-        padding: '5px 9px',
-        borderRadius: 999,
-        background: 'var(--dsw-alias-bg-layer-1)',
-        border: '1px solid var(--dsw-alias-border-l2)',
-        boxShadow: '0 6px 20px rgba(0, 0, 0, 0.28)',
-        userSelect: 'none',
-      },
       dot: { width: 8, height: 8, borderRadius: 999, display: 'inline-block', flex: '0 0 auto' },
-      title: { fontWeight: 600, whiteSpace: 'nowrap' },
-      muted: { color: 'var(--dsw-alias-label-secondary)', whiteSpace: 'nowrap' },
-      panel: {
-        pointerEvents: 'auto',
-        width: 368,
-        padding: 12,
-        borderRadius: 12,
-        background: 'var(--dsw-alias-bg-layer-1)',
-        border: '1px solid var(--dsw-alias-border-l2)',
-        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.32)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 9,
-      },
-      section: { display: 'flex', flexDirection: 'column', gap: 8 },
-      row: { display: 'flex', alignItems: 'center', gap: 6 },
-      wrapRow: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-      label: { color: 'var(--dsw-alias-label-secondary)', fontSize: 11, minWidth: 30, flex: '0 0 auto' },
+      muted: { color: 'var(--dsw-alias-label-secondary)' },
+      label: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, minWidth: 60, flex: '0 0 auto' },
       arrow: { color: 'var(--dsw-alias-label-tertiary)', flex: '0 0 auto' },
       select: {
         background: 'var(--dsw-alias-bg-layer-2)',
         color: 'var(--dsw-alias-label-primary)',
         border: '1px solid var(--dsw-alias-border-l2)',
         borderRadius: 6,
-        padding: '2px 4px',
-        fontSize: 12,
+        padding: '3px 6px',
+        fontSize: 13,
         fontFamily: 'inherit',
         minWidth: 0,
-        maxWidth: 128,
+        maxWidth: 160,
       },
       button: {
         background: 'var(--dsw-alias-button-tool-bar-fill, var(--dsw-alias-bg-layer-2))',
         color: 'var(--dsw-alias-label-primary)',
         border: '1px solid var(--dsw-alias-border-l2)',
         borderRadius: 6,
-        padding: '3px 8px',
-        fontSize: 12,
+        padding: '4px 10px',
+        fontSize: 13,
         fontFamily: 'inherit',
         cursor: 'pointer',
       },
-      activeButton: {
+      primaryButton: {
         background: 'var(--dsw-alias-brand-primary)',
         color: 'var(--dsw-alias-label-on-color)',
         border: '1px solid transparent',
         borderRadius: 6,
-        padding: '3px 8px',
-        fontSize: 12,
-        fontFamily: 'inherit',
-        cursor: 'pointer',
-      },
-      iconButton: {
-        background: 'transparent',
-        color: 'var(--dsw-alias-label-primary)',
-        border: 'none',
-        borderRadius: 6,
-        padding: '2px 4px',
-        fontSize: 12,
+        padding: '4px 14px',
+        fontSize: 13,
         fontFamily: 'inherit',
         cursor: 'pointer',
       },
@@ -129,26 +81,59 @@ window.__ModuleLoader__.load({
         color: 'var(--dsw-alias-label-primary)',
         border: '1px solid var(--dsw-alias-border-l2)',
         borderRadius: 6,
-        width: 22,
-        height: 22,
-        fontSize: 12,
-        lineHeight: '16px',
+        width: 24,
+        height: 24,
+        fontSize: 13,
+        lineHeight: '18px',
         fontFamily: 'inherit',
         cursor: 'pointer',
         padding: 0,
       },
-      number: { minWidth: 30, textAlign: 'center', color: 'var(--dsw-alias-label-primary)' },
-      divider: { height: 1, background: 'var(--dsw-alias-border-l2)', margin: '2px 0' },
-      footer: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 11, wordBreak: 'break-all' },
-      error: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 11, wordBreak: 'break-all' },
+      number: { minWidth: 34, textAlign: 'center', color: 'var(--dsw-alias-label-primary)' },
     }
 
-    function labelOf(pairs, value) {
-      for (const pair of pairs) if (pair[1] === value) return pair[0]
-      return String(value)
+    /** Page-level layout; the shell gives the main column the full height. */
+    const P = {
+      page: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 18,
+        boxSizing: 'border-box',
+        width: '100%',
+        maxWidth: 880,
+        margin: '0 auto',
+        // The main column has no scroller of its own; the page owns one.
+        flex: '1 1 auto',
+        minHeight: 0,
+        overflowY: 'auto',
+        padding: '28px 32px 48px',
+        fontFamily: 'inherit',
+        fontSize: 13,
+        lineHeight: 1.55,
+        color: 'var(--dsw-alias-label-primary)',
+      },
+      head: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' },
+      title: { margin: 0, fontSize: 20, fontWeight: 500, lineHeight: '28px' },
+      intro: { margin: '4px 0 0', fontSize: 13, color: 'var(--dsw-alias-label-secondary)' },
+      headActions: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+      status: { display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--dsw-alias-label-secondary)' },
+      card: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        padding: '14px 16px',
+        borderRadius: 12,
+        background: 'var(--dsw-alias-bg-layer-1)',
+        border: '1px solid var(--dsw-alias-border-l2)',
+      },
+      cardTitle: { fontSize: 12, fontWeight: 600, color: 'var(--dsw-alias-label-secondary)' },
+      row: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+      hint: { fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', maxWidth: 620 },
+      footer: { fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', wordBreak: 'break-all' },
+      error: { fontSize: 12, color: 'var(--dsw-alias-state-error-primary)', wordBreak: 'break-all' },
     }
 
-    /** Map transport/auth failures to a short message for the panel footer. */
+    /** Map transport/auth failures to a short message for the page footer. */
     function apiFailure(error) {
       const status = error && error.status
       if (status === 401 || status === 403) return 'DSH 会话未授权，请刷新页面'
@@ -189,8 +174,8 @@ window.__ModuleLoader__.load({
     function stepper(label, value, min, max, step, onChange, format) {
       const numberStyle = format === undefined
         ? S.number
-        : { ...S.number, minWidth: 58, whiteSpace: 'nowrap' }
-      return h('div', { style: { ...S.row, gap: 4 } },
+        : { ...S.number, minWidth: 62, whiteSpace: 'nowrap' }
+      return h('div', { style: { ...P.row, gap: 4 } },
         h('span', { style: S.label }, label),
         h('button', { style: S.smallButton, title: '减少', onClick: () => onChange(Math.max(min, value - step)) }, '−'),
         h('span', { style: numberStyle }, format === undefined ? String(value) : format(value)),
@@ -198,9 +183,30 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function ControlBar() {
+    function card(title, ...children) {
+      return h('section', { style: P.card },
+        h('div', { style: P.cardTitle }, title),
+        ...children,
+      )
+    }
+
+    /** Sidebar glyph: a subtitle frame with two text lines, drawn in `currentColor`. */
+    function PanelEntryIcon({ size }) {
+      const edge = typeof size === 'number' ? size : 20
+      return h('svg', {
+        width: edge, height: edge, viewBox: '0 0 24 24', fill: 'none',
+        'aria-hidden': 'true', focusable: 'false',
+      },
+        h('rect', { x: 3, y: 5, width: 18, height: 14, rx: 3.5, stroke: 'currentColor', strokeWidth: 1.6 }),
+        h('path', {
+          d: 'M7 11h7M7 15h10', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round',
+        }),
+      )
+    }
+
+    /** The page the sidebar entry selects; it polls the Host while it is open. */
+    function RtPage() {
       const [snap, setSnap] = useState(null)
-      const [open, setOpen] = useState(false)
       const [error, setError] = useState('')
       const alive = useRef(true)
 
@@ -211,7 +217,7 @@ window.__ModuleLoader__.load({
           return
         }
         if (result && result.error) setError(result.error.message)
-        else setError('控制面板不可用')
+        else setError('控制页不可用')
       }, [])
 
       const refresh = useCallback(async () => {
@@ -245,119 +251,138 @@ window.__ModuleLoader__.load({
       }, [apply])
 
       if (snap === null) {
-        return h('div', { style: S.root },
-          h('div', { style: S.pill },
-            h('span', { style: { ...S.dot, background: error ? PHASE_COLOR.error : PHASE_COLOR.idle } }),
-            h('span', { style: S.title }, '实时翻译'),
-            h('span', { style: S.muted }, error ? '未连接' : '连接中…'),
-            h('button', { style: S.iconButton, title: '重试', onClick: () => { void refresh() } }, '↻'),
+        return h('div', { style: P.page },
+          h('header', { style: P.head },
+            h('div', null,
+              h('h1', { style: P.title }, '实时翻译'),
+              h('p', { style: P.intro }, '系统声音实时字幕'),
+            ),
           ),
-          error ? h('div', { style: { ...S.error, pointerEvents: 'auto' } }, error) : null,
+          h('section', { style: P.card },
+            h('div', { style: S.muted }, error ? '未连接到插件' : '连接中…'),
+            error ? h('div', { style: P.error }, error) : null,
+            h('div', { style: P.row },
+              h('button', { style: S.button, onClick: () => { void refresh() } }, '重试'),
+            ),
+          ),
         )
       }
 
       const state = snap.state
       const subtitle = snap.subtitle
-      const segment = snap.segment || { silenceMs: 280, maxSegmentMs: 5000 }
+      const segment = snap.segment || { silenceMs: 550, maxSegmentMs: 8000 }
       const autoPause = typeof snap.autoPauseAfterMs === 'number' ? snap.autoPauseAfterMs : 120000
       const running = state.phase === 'listening' || state.phase === 'preparing'
       const phaseLabel = PHASE_LABEL[state.phase] || state.phase
       const dotColor = PHASE_COLOR[state.phase] || PHASE_COLOR.idle
-      const languageLabel = state.source === 'auto'
-        ? `自动 → ${labelOf(TARGETS, state.target)}`
-        : `${labelOf(SOURCES, state.source)} → ${labelOf(TARGETS, state.target)}`
 
-      const pill = h('div', { style: S.pill, title: '实时语音翻译字幕' },
-        h('span', { style: { ...S.dot, background: dotColor } }),
-        h('span', { style: S.title }, '实时翻译'),
-        h('span', { style: S.muted }, languageLabel),
-        h('span', { style: { color: dotColor, whiteSpace: 'nowrap' } }, phaseLabel),
-        h('button', {
-          style: S.iconButton,
-          title: running ? '停止（Ctrl+Alt+S）' : '开始（Ctrl+Alt+S）',
-          onClick: () => { void act('toggle') },
-        }, running ? '⏸' : '▶'),
-        h('button', {
-          style: S.iconButton,
-          title: open ? '收起' : '展开设置',
-          onClick: () => setOpen(value => !value),
-        }, open ? '▾' : '▴'),
-      )
-
-      const panel = open ? h('div', { style: S.panel },
-        h('div', { style: S.row },
-          h('span', { style: S.label }, '语言'),
-          select(SOURCES, state.source, value => { void act('setSource', value) }),
-          h('span', { style: S.arrow }, '→'),
-          select(TARGETS, state.target, value => { void act('setTarget', value) }),
-        ),
-        h('div', { style: S.wrapRow },
-          stepper('静音切分', segment.silenceMs, 100, 3000, 50, value => { void act('setSegment', { silenceMs: value }) }, value => `${value} ms`),
-          h('span', { style: { width: 10, flex: '0 0 auto' } }),
-          stepper('单句最长', segment.maxSegmentMs, 1000, 15000, 500, value => { void act('setSegment', { maxSegmentMs: value }) }, value => `${(value / 1000).toFixed(1)} s`),
-        ),
-        h('div', { style: S.wrapRow },
-          h('span', { style: S.label }, '暂停'),
-          select(AUTO_PAUSE_OPTIONS, String(autoPause), value => { void act('setAutoPause', Number(value)) }),
-          h('span', { style: S.muted }, '静音后自动暂停'),
-        ),
-        h('div', { style: S.divider }),
-        h('div', { style: S.wrapRow },
-          stepper('字号', subtitle.fontSize, 12, 96, 2, value => { void act('setFontSize', value) }),
-          h('span', { style: { width: 10, flex: '0 0 auto' } }),
-          stepper('行数', subtitle.maxLines, 2, 5, 1, value => { void act('setSubtitle', { maxLines: value }) }),
-        ),
-        h('div', { style: S.wrapRow },
-          h('span', { style: S.label }, '透明度'),
-          h('input', {
-            type: 'range',
-            min: 0.2,
-            max: 1,
-            step: 0.01,
-            value: subtitle.opacity,
-            style: { width: 88, accentColor: 'var(--dsw-alias-brand-primary)' },
-            onChange: event => { void act('setSubtitle', { opacity: Number(event.target.value) }) },
-          }),
-          h('span', { style: S.muted }, `${Math.round(subtitle.opacity * 100)}%`),
-          h('label', { style: { ...S.row, marginLeft: 8 } },
-            h('input', {
-              type: 'checkbox',
-              checked: subtitle.bilingual === true,
-              onChange: event => { void act('setSubtitle', { bilingual: event.target.checked }) },
-            }),
-            h('span', { style: S.muted }, '显示原文'),
+      return h('div', { style: P.page },
+        h('header', { style: P.head },
+          h('div', { style: { minWidth: 0 } },
+            h('h1', { style: P.title }, '实时翻译'),
+          ),
+          h('div', { style: P.headActions },
+            h('span', { style: P.status },
+              h('span', { style: { ...S.dot, background: dotColor } }),
+              phaseLabel,
+            ),
+            h('button', {
+              style: running ? S.primaryButton : S.button,
+              title: running ? '停止（Ctrl+Alt+S）' : '开始（Ctrl+Alt+S）',
+              onClick: () => { void act('toggle') },
+            }, running ? '⏸ 停止' : '▶ 开始'),
           ),
         ),
-        h('div', { style: S.wrapRow },
-          h('span', { style: S.label }, '阅读'),
-          select(READ_OPTIONS, subtitle.minReadMs, value => { void act('setSubtitle', { minReadMs: Number(value) }) }),
+        card('语言',
+          h('div', { style: P.row },
+            h('span', { style: S.label }, '源'),
+            select(SOURCES, state.source, value => { void act('setSource', value) }),
+            h('span', { style: S.arrow }, '→'),
+            h('span', { style: S.label }, '目的'),
+            select(TARGETS, state.target, value => { void act('setTarget', value) }),
+          ),
         ),
-        h('div', { style: S.divider }),
-        h('div', { style: S.wrapRow },
-          h('button', { style: S.button, onClick: () => { void act('clear') } }, '清屏'),
-          h('button', { style: S.button, onClick: () => { void act('restart') } }, '重连音频'),
-          h('button', { style: S.button, onClick: () => { void act('prepare') } }, '准备模型'),
+        card('分段',
+          h('div', { style: P.row },
+            stepper('静音切分', segment.silenceMs, 100, 3000, 50, value => { void act('setSegment', { silenceMs: value }) }, value => `${value} ms`),
+            stepper('单句最长', segment.maxSegmentMs, 1000, 15000, 500, value => { void act('setSegment', { maxSegmentMs: value }) }, value => `${(value / 1000).toFixed(1)} s`),
+          ),
+          h('div', { style: P.hint },
+            '静音切分越短越灵敏，但短于正常停顿会把一句话切成两半；会议语音建议 500–800 ms。',
+          ),
         ),
-        h('div', { style: S.footer },
-          `识别: ${snap.stt}`,
-          h('br'),
-          `翻译: ${snap.translate.provider || '跟随默认'} / ${snap.translate.model || '自动'}`,
-          snap.persistence ? null : h('span', null, h('br'), '设置未写入 profile（仅内存）'),
+        card('字幕',
+          h('div', { style: P.row },
+            stepper('字号', subtitle.fontSize, 12, 96, 2, value => { void act('setFontSize', value) }),
+            stepper('行数', subtitle.maxLines, 2, 5, 1, value => { void act('setSubtitle', { maxLines: value }) }),
+          ),
+          h('div', { style: P.row },
+            h('span', { style: S.label }, '透明度'),
+            h('input', {
+              type: 'range',
+              min: 0.2,
+              max: 1,
+              step: 0.01,
+              value: subtitle.opacity,
+              style: { width: 160, accentColor: 'var(--dsw-alias-brand-primary)' },
+              onChange: event => { void act('setSubtitle', { opacity: Number(event.target.value) }) },
+            }),
+            h('span', { style: S.muted }, `${Math.round(subtitle.opacity * 100)}%`),
+            h('span', { style: { width: 12 } }),
+            h('span', { style: S.label }, '阅读'),
+            select(READ_OPTIONS, subtitle.minReadMs, value => { void act('setSubtitle', { minReadMs: Number(value) }) }),
+            h('label', { style: { ...P.row, marginLeft: 12 } },
+              h('input', {
+                type: 'checkbox',
+                checked: subtitle.bilingual === true,
+                onChange: event => { void act('setSubtitle', { bilingual: event.target.checked }) },
+              }),
+              h('span', { style: S.muted }, '显示原文'),
+            ),
+          ),
         ),
-        state.error || error ? h('div', { style: S.error }, state.error || error) : null,
-      ) : null
-
-      return h('div', { style: S.root }, panel, pill)
+        card('自动暂停',
+          h('div', { style: P.row },
+            select(AUTO_PAUSE_OPTIONS, String(autoPause), value => { void act('setAutoPause', Number(value)) }),
+            h('span', { style: S.muted }, '连续静音这么久后停止采集，按开始恢复'),
+          ),
+        ),
+        card('操作',
+          h('div', { style: P.row },
+            h('button', { style: S.button, onClick: () => { void act('clear') } }, '清屏'),
+            h('button', { style: S.button, onClick: () => { void act('restart') } }, '重连音频'),
+            h('button', { style: S.button, onClick: () => { void act('prepare') } }, '准备模型'),
+            h('button', {
+              style: S.button,
+              title: '切分、自动暂停与字幕恢复默认值（语言保持不变）',
+              onClick: () => { void act('resetDefaults') },
+            }, '默认配置'),
+          ),
+        ),
+        h('section', { style: P.card },
+          h('div', { style: P.footer },
+            `识别: ${snap.stt}`,
+            h('br'),
+            `翻译: ${snap.translate.provider || '跟随默认'} / ${snap.translate.model || '自动'}`,
+            snap.persistence ? null : h('span', null, h('br'), '设置未写入 profile（仅内存）'),
+          ),
+          state.error || error ? h('div', { style: P.error }, state.error || error) : null,
+        ),
+      )
     }
 
     return {
       inject: ['slots'],
       apply(ctx) {
-        ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-          name: 'shell.overlay',
-          id: 'rt-translation-control',
-          order: 120,
-        }, ControlBar))
+        // The page and its sidebar entry share one id: the entry selects the panel.
+        ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, RtPage))
+        ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+          name: 'sidebar.panellist',
+          id: PANEL_ID,
+          order: 20,
+          // Shipped panel rows pass a label function; the sidebar resolves it.
+          label: () => '实时翻译',
+        }, PanelEntryIcon))
       },
     }
   },

@@ -30,6 +30,13 @@ test('dispatchAction 把 setSegment/setAutoPause 转成控制器调用', async (
   assert.deepEqual(calls, [['segment', { silenceMs: 500 }], ['auto', 60_000]])
 })
 
+test('dispatchAction 把 resetDefaults 转成控制器调用', async () => {
+  let calls = 0
+  const controller = { async resetDefaults() { calls += 1 } }
+  await dispatchAction({ op: 'action', name: 'resetDefaults' }, controller as never)
+  assert.equal(calls, 1)
+})
+
 test('dispatchAction 把字号动作转成字幕设置', async () => {
   const patches: unknown[] = []
   const controller = { async setSubtitle(patch: unknown) { patches.push(patch) } }

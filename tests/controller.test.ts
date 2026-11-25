@@ -181,6 +181,57 @@ test('setAutoPause 更新长静音阈值', async () => {
   assert.equal(d.settingsValue.autoPauseAfterMs, 90_000)
 })
 
+test('resetDefaults 恢复切分/自动暂停/字幕默认值并保留语言', async () => {
+  const d = fake()
+  d.settingsValue = resolveConfig({
+    sourceLanguage: 'zh',
+    targetLanguage: 'en',
+    segment: { silenceMs: 150, maxSegmentMs: 10_000, preRollMs: 200 },
+    autoPauseAfterMs: 0,
+    subtitle: { fontSize: 44, maxLines: 5, opacity: 0.4, bilingual: false, minReadMs: 0 },
+  })
+  d.patchSettings = (async (patch: Partial<typeof d.settingsValue>) => {
+    d.settingsValue = { ...d.settingsValue, ...patch }
+  }) as never
+  const configured: unknown[] = []
+  const styles: Array<Record<string, unknown>> = []
+  ;(d.subtitles as unknown as { configure(value: unknown): void }).configure = value => { configured.push(value) }
+  ;(d.renderer as unknown as { style(value: Record<string, unknown>): void }).style = value => { styles.push(value) }
+
+  const c = new Controller(d as never)
+  await c.resetDefaults()
+
+  assert.equal(d.settingsValue.sourceLanguage, 'zh')
+  assert.equal(d.settingsValue.targetLanguage, 'en')
+  assert.deepEqual(d.settingsValue.segment, { silenceMs: 550, maxSegmentMs: 8000, preRollMs: 400 })
+  assert.equal(d.settingsValue.autoPauseAfterMs, 120_000)
+  assert.equal(d.settingsValue.subtitle.fontSize, 20)
+  assert.equal(d.settingsValue.subtitle.maxLines, 3)
+  assert.equal(d.settingsValue.subtitle.opacity, 0.72)
+  assert.equal(d.settingsValue.subtitle.bilingual, true)
+  assert.equal(d.settingsValue.subtitle.minReadMs, 1800)
+  assert.deepEqual(configured.at(-1), { maxCues: 4, bilingual: true, holdMs: 6000 })
+  assert.equal(styles.at(-1)?.fontSize, 20)
+  assert.equal(d.opened, 0, '未收听时不应重连采集')
+})
+
+test('收听中 resetDefaults 会重连采集并保持收听状态', async () => {
+  const d = fake()
+  d.settingsValue = resolveConfig({ segment: { silenceMs: 150, maxSegmentMs: 10_000 } })
+  d.patchSettings = (async (patch: Partial<typeof d.settingsValue>) => {
+    d.settingsValue = { ...d.settingsValue, ...patch }
+  }) as never
+  const c = new Controller(d as never)
+
+  await c.start()
+  const openedBefore = d.opened
+  await c.resetDefaults()
+
+  assert.equal(d.opened, openedBefore + 1)
+  assert.equal(d.settingsValue.segment.silenceMs, 550)
+  assert.equal(c.state().phase, 'listening')
+})
+
 test('设置无法持久化时 status 明确标注', () => {
   const d = fake()
   ;(d as { persistence?: () => boolean }).persistence = () => false

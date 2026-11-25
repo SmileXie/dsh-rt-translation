@@ -12,7 +12,15 @@ export interface SegmenterOptions {
 
 const FRAME_MS = 20
 const OVERLAP_FRAMES = 12
-const TRAIL_MS = 100
+const FORCED_CUT_WINDOW_MS = 2500
+/** Start a segment above `noiseFloor * ratio` and never below this absolute RMS. */
+const ENTER_NOISE_RATIO = 2.5
+const ENTER_FLOOR = 320
+/** Below this a frame is silence: quieter than the start gate, so soft syllables inside a sentence survive. */
+const EXIT_NOISE_RATIO = 1.5
+const EXIT_FLOOR = 140
+/** Keep a real gap between start and end gates no matter how loud the background is. */
+const EXIT_CEILING_RATIO = 0.7
 
 function rms(frame: Int16Array): number {
   let sum = 0
@@ -50,33 +58,47 @@ export class Segmenter {
     this.partialFrames = Math.max(1, Math.round(options.partialIntervalMs / FRAME_MS))
     this.speechFrames = Math.max(1, Math.round((options.speechMs ?? 60) / FRAME_MS))
     this.releaseFrames = Math.max(1, Math.round((options.releaseMs ?? 300) / FRAME_MS))
-    this.preRollFrames = Math.max(0, Math.round((options.preRollMs ?? 200) / FRAME_MS))
+    this.preRollFrames = Math.max(0, Math.round((options.preRollMs ?? 400) / FRAME_MS))
   }
 
   get state(): 'idle' | 'speech' { return this.current }
 
   reset(): void {
-    this.current = 'idle'
+    this.resetSegment()
     this.noiseFloor = 200
-    this.above = 0
-    this.below = 0
-    this.ring = []
-    this.segment = []
-    this.partialAt = 0
   }
 
   push(frame: Int16Array): SegmentEvent[] {
     const energy = rms(frame)
-    const threshold = Math.max(this.noiseFloor * 3, 400)
-    if (this.current === 'idle') return this.pushIdle(frame, energy, threshold)
-    return this.pushSpeech(frame, energy, threshold)
+    if (this.current === 'idle') return this.pushIdle(frame, energy)
+    return this.pushSpeech(frame, energy)
   }
 
-  private pushIdle(frame: Int16Array, energy: number, threshold: number): SegmentEvent[] {
-    this.noiseFloor = this.noiseFloor * 0.98 + energy * 0.02
+  /** Level that opens a segment; tracked from ambient noise only while idle. */
+  private enterThreshold(): number {
+    return Math.max(this.noiseFloor * ENTER_NOISE_RATIO, ENTER_FLOOR)
+  }
+
+  /** Level under which a frame is silence; always below the gate that opened the segment. */
+  private exitThreshold(enter: number): number {
+    return Math.min(Math.max(this.noiseFloor * EXIT_NOISE_RATIO, EXIT_FLOOR), enter * EXIT_CEILING_RATIO)
+  }
+
+  private voicedFrames(frames: Int16Array[]): number {
+    const exit = this.exitThreshold(this.enterThreshold())
+    let voiced = 0
+    for (const frame of frames) if (rms(frame) > exit) voiced += 1
+    return voiced
+  }
+
+  private pushIdle(frame: Int16Array, energy: number): SegmentEvent[] {
+    const enter = this.enterThreshold()
+    // Speech must not feed the ambient estimate: the first syllables of an utterance used
+    // to raise the gate for the rest of that same utterance, so its own tail read as silence.
+    if (energy <= enter) this.noiseFloor = this.noiseFloor * 0.98 + energy * 0.02
     this.ring.push(frame)
     if (this.ring.length > this.preRollFrames + this.speechFrames) this.ring.shift()
-    this.above = energy > threshold ? this.above + 1 : 0
+    this.above = energy > enter ? this.above + 1 : 0
     if (this.above < this.speechFrames) return []
     this.current = 'speech'
     this.segment = [...this.ring]
@@ -86,9 +108,9 @@ export class Segmenter {
     return []
   }
 
-  private pushSpeech(frame: Int16Array, energy: number, threshold: number): SegmentEvent[] {
+  private pushSpeech(frame: Int16Array, energy: number): SegmentEvent[] {
     this.segment.push(frame)
-    this.below = energy > threshold ? 0 : this.below + 1
+    this.below = energy > this.exitThreshold(this.enterThreshold()) ? 0 : this.below + 1
     const events: SegmentEvent[] = []
     if (this.below >= this.silenceFrames) {
       const final = this.finalize()
@@ -107,26 +129,20 @@ export class Segmenter {
     return events
   }
 
+  /**
+   * Keep the whole segment. Trimming back to the last frame above the start gate used to
+   * discard soft sentence endings (falling pitch, trailing particles): the audio was read
+   * as silence and never reached the recognizer, so sentences showed up as halves.
+   */
   private finalize(): SegmentEvent | undefined {
-    let lastLoud = -1
-    const threshold = Math.max(this.noiseFloor * 3, 400)
-    for (let i = this.segment.length - 1; i >= 0; i--) {
-      if (rms(this.segment[i]) > threshold) { lastLoud = i; break }
-    }
-    const keep = lastLoud < 0 ? 0 : lastLoud + 1 + Math.round(TRAIL_MS / FRAME_MS)
-    const frames = this.segment.slice(0, keep)
-    this.current = 'idle'
-    this.segment = []
-    this.partialAt = 0
-    this.above = 0
-    this.below = 0
-    this.ring = []
-    if (frames.length < this.releaseFrames) return undefined
+    const frames = this.segment
+    this.resetSegment()
+    if (this.voicedFrames(frames) < this.releaseFrames) return undefined
     return { kind: 'final', audio: concat(frames) }
   }
 
   private forcedCut(): SegmentEvent | undefined {
-    const windowStart = Math.max(this.releaseFrames, this.segment.length - Math.round(1500 / FRAME_MS))
+    const windowStart = Math.max(this.releaseFrames, this.segment.length - Math.round(FORCED_CUT_WINDOW_MS / FRAME_MS))
     let cut = this.segment.length - 1
     let lowest = Infinity
     for (let i = windowStart; i < this.segment.length; i++) {
@@ -139,8 +155,16 @@ export class Segmenter {
     this.segment = remainder
     this.below = 0
     this.partialAt = this.segment.length
-    if (frames.length < this.releaseFrames) return undefined
+    if (this.voicedFrames(frames) < this.releaseFrames) return undefined
     return { kind: 'final', audio: concat(frames) }
   }
-}
 
+  private resetSegment(): void {
+    this.current = 'idle'
+    this.segment = []
+    this.partialAt = 0
+    this.above = 0
+    this.below = 0
+    this.ring = []
+  }
+}

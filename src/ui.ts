@@ -97,6 +97,7 @@ export async function dispatchAction(
         if (patch !== undefined) await controller.setSegment(patch)
         return
       }
+      case 'resetDefaults': await controller.resetDefaults(); return
       case 'setAutoPause': {
         const afterMs = parseAutoPause(op.value)
         if (afterMs !== undefined) await controller.setAutoPause(afterMs)

@@ -123,9 +123,11 @@ export function resolveConfig(input: Config): ResolvedSettings {
       glossary: input.translate?.glossary ?? [],
     },
     segment: {
-      silenceMs: input.segment?.silenceMs ?? 280,
-      maxSegmentMs: input.segment?.maxSegmentMs ?? 5000,
-      preRollMs: input.segment?.preRollMs ?? 200,
+      // 550 ms clears natural clause pauses; a shorter gate (e.g. 150 ms) cuts every
+      // breath and shows each sentence as two halves.
+      silenceMs: input.segment?.silenceMs ?? 550,
+      maxSegmentMs: input.segment?.maxSegmentMs ?? 8000,
+      preRollMs: input.segment?.preRollMs ?? 400,
     },
     autoPauseAfterMs: input.autoPauseAfterMs ?? 120000,
     subtitle: {

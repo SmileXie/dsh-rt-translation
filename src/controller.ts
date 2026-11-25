@@ -1,5 +1,6 @@
 /** Plugin lifecycle: model preparation, capture ownership, and UI state. */
 import type { Language, ResolvedSettings, SourceLanguage } from './config.ts'
+import { resolveConfig } from './config.ts'
 import type { Pipeline, PipelineDeps } from './pipeline.ts'
 import type { SttClient } from './stt.ts'
 import type { Translator } from './translate.ts'
@@ -141,6 +142,23 @@ export class Controller {
   async setAutoPause(afterMs: number): Promise<void> {
     await this.deps.patchSettings({ autoPauseAfterMs: Math.max(0, Math.round(afterMs)) })
     this.emit()
+  }
+
+  /**
+   * Restore the panel's tuning knobs to the plugin defaults. Languages stay as
+   * chosen: they describe the audio being played, not a preference to reset.
+   */
+  async resetDefaults(): Promise<void> {
+    const defaults = resolveConfig({})
+    await this.deps.patchSettings({
+      segment: defaults.segment,
+      autoPauseAfterMs: defaults.autoPauseAfterMs,
+      subtitle: defaults.subtitle,
+    })
+    this.applySubtitle()
+    this.emit()
+    // Segment values only reach the running segmenter through a new pipeline.
+    if (this.phase === 'listening') await this.restart()
   }
 
   /** Apply a partial subtitle style change from the settings panel or hotkeys. */

@@ -33,6 +33,7 @@ function fakeController() {
     state: () => ({ running: false, phase: 'idle', source: 'auto', target: 'zh', error: null }),
     async setSubtitle(patch: unknown) { calls.push(['setSubtitle', patch]) },
     async setSegment(patch: unknown) { calls.push(['setSegment', patch]) },
+    async resetDefaults() { calls.push(['resetDefaults', undefined]) },
     prepareModel() { calls.push(['prepareModel', undefined]) },
     async start() { calls.push(['start', undefined]) },
   }
@@ -71,7 +72,7 @@ test('GET state 返回面板快照；POST action 驱动控制器', async () => {
   assert.equal(stateBody.ok, true)
   assert.equal(stateBody.value.state.phase, 'idle')
   assert.equal(stateBody.value.subtitle.maxLines, 3)
-  assert.equal(stateBody.value.segment.silenceMs, 280)
+  assert.equal(stateBody.value.segment.silenceMs, 550)
   assert.equal(stateBody.value.autoPauseAfterMs, 120000)
 
   const postRes = fakeRes()
@@ -100,6 +101,21 @@ test('POST action setSegment 驱动分段设置', async () => {
   await webServer.routes.get(PANEL_ACTION_PATH)!.handler(req as never, res as never)
   assert.equal(res.state.status, 200)
   assert.deepEqual(controller.calls, [['setSegment', { silenceMs: 500 }]])
+})
+
+test('POST action resetDefaults 走面板白名单并驱动控制器', async () => {
+  const webServer = fakeWebServer()
+  const controller = fakeController()
+  registerPanelRoutes(webServer as never, () => authorized, deps(controller))
+  const res = fakeRes()
+  const req = {
+    method: 'POST',
+    headers: {},
+    async *[Symbol.asyncIterator]() { yield Buffer.from('{"action":"resetDefaults"}', 'utf8') },
+  }
+  await webServer.routes.get(PANEL_ACTION_PATH)!.handler(req as never, res as never)
+  assert.equal(res.state.status, 200)
+  assert.deepEqual(controller.calls, [['resetDefaults', undefined]])
 })
 
 test('未授权返回 401，方法不对返回 405，非法动作返回 400', async () => {

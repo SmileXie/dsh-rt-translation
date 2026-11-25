@@ -5,7 +5,7 @@ import type { Cue } from './state.ts'
 export type ActionName =
   | 'toggle' | 'start' | 'stop' | 'prepare' | 'clear' | 'restart'
   | 'setSource' | 'setTarget' | 'setFontSize' | 'setSubtitle'
-  | 'setSegment' | 'setAutoPause'
+  | 'setSegment' | 'setAutoPause' | 'resetDefaults'
   | 'setApp' | 'quit'
 
 export interface UiState {
@@ -52,7 +52,7 @@ export type OverlayOp =
 const ACTIONS = new Set<string>([
   'toggle', 'start', 'stop', 'prepare', 'clear', 'restart',
   'setSource', 'setTarget', 'setFontSize', 'setSubtitle',
-  'setSegment', 'setAutoPause',
+  'setSegment', 'setAutoPause', 'resetDefaults',
   'setApp', 'quit',
 ])
 
@@ -60,7 +60,7 @@ const ACTIONS = new Set<string>([
 export const PANEL_ACTIONS: ReadonlySet<ActionName> = new Set([
   'toggle', 'start', 'stop', 'prepare', 'clear', 'restart',
   'setSource', 'setTarget', 'setFontSize', 'setSubtitle',
-  'setSegment', 'setAutoPause', 'setApp',
+  'setSegment', 'setAutoPause', 'resetDefaults', 'setApp',
 ])
 
 /** Serialize one host instruction as a single NDJSON line. */

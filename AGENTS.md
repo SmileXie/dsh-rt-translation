@@ -9,7 +9,7 @@
 
 - 采集 Windows 系统回环音频（不含麦克风），本机 SenseVoice 识别中/英/日/韩/粤。
 - 用 DSH 里已配置的 LLM 流式翻译。
-- 字幕画在置顶、透明、**可用鼠标拖动**的 WPF 叠加窗；控制条在 **DSH 窗口右下角**。
+- 字幕画在置顶、透明、**可用鼠标拖动**的 WPF 叠加窗；控制页在 **DSH 左侧导航（「插件」「自动化任务」同级）**，不浮在页面之上。
 - 音频只在内存中；只有识别出的文本进入 LLM 请求。
 
 硬约束：
@@ -24,7 +24,7 @@
 | 命令 | 作用 | 备注 |
 | --- | --- | --- |
 | `npm install` | 安装插件自身依赖 | 链接安装不会自动装，缺了插件加载失败 |
-| `npm test` | 单元/集成测试（`node --test`，79 个） | 提交前必须通过 |
+| `npm test` | 单元/集成测试（`node --test`，91 个） | 提交前必须通过 |
 | `npm run test:overlay` | 多行窗口状态机自检（9 个断言，不弹窗） | 改 `overlay.ps1` 行选择逻辑后必跑 |
 | `npm run test:icon` | 托盘图标生成自检（`PASS tray icon 32x32`） | 改 `assets/icon.jpeg` / 图标代码后跑 |
 | `powershell ... overlay.ps1 -SelfTest` | 弹 1.5 秒字幕窗，验证 WPF 渲染 | 需要桌面会话 |
@@ -45,7 +45,7 @@ loopback-capture (48k/2ch)
   → WindowsWpfRenderer（NDJSON over stdio）
   → assets/overlay/overlay.ps1（WPF 叠加窗 + 托盘）
 
-client.js（DSH 页面的 shell.overlay 槽位，右下角控制条）
+client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一个 id）
   ⇄ GET/POST /plugins/dsh-rt-translation/state|action（带 DSH 鉴权）
   ⇄ src/panel.ts → Controller
 
@@ -68,13 +68,13 @@ client.js（DSH 页面的 shell.overlay 槽位，右下角控制条）
 | `src/commands.ts` | `/rt` 斜杠命令 |
 | `src/tool.ts` | 模型工具 `rt_translate` |
 | `src/ui.ts` | 动作分发 + 设置补丁校验（`parseSubtitlePatch` / `parseSegmentPatch` / `parseAutoPause`） |
-| `src/panel.ts` | 控制条的两个鉴权路由与快照 |
+| `src/panel.ts` | 控制页的两个鉴权路由与快照 |
 | `src/subtitle/state.ts` | `SubtitleModel`（纯状态，可单测） |
 | `src/subtitle/protocol.ts` | NDJSON 协议、动作白名单、`toStylePayload` |
 | `src/subtitle/renderer.ts` | `SubtitleRenderer` 接口（含可恢复的 `close()`） |
 | `src/subtitle/windows-wpf.ts` | 子进程管理、重启、close/dispose |
 | `assets/overlay/overlay.ps1` | WPF 叠加窗、托盘、热键、协议处理、行窗口与自检 |
-| `client.js` | DSH 浏览器半：控制条、面板、fetch 轮询 |
+| `client.js` | DSH 浏览器半：侧边栏入口、「实时翻译」页、fetch 轮询 |
 | `assets/icon.jpeg` | 托盘图标源图（缩放到 32×32） |
 | `cordis.bundle.patch.yml` | `dsh plugin add` 安装用的 bundle patch |
 | `cordis.patch.yml` | 开发模式 `dsh web --patch` 用 |
@@ -92,8 +92,9 @@ client.js（DSH 页面的 shell.overlay 槽位，右下角控制条）
 | `capture.mode` | `system-exclude-self` | 排除 DSH 自身播放 |
 | `stt` | `sensevoice-local`，临时结果开，900 ms | |
 | `translate` | 不指定 provider/model（跟随 DSH 默认），上下文 2 轮 | |
-| `segment.silenceMs` | 280 ms（100–3000） | 静音切分 |
-| `segment.maxSegmentMs` | 5000 ms（1000–30000） | 单句最长 |
+| `segment.silenceMs` | 550 ms（100–3000） | 静音切分；短于正常分句停顿会把一句切成两半 |
+| `segment.maxSegmentMs` | 8000 ms（1000–30000） | 单句最长 |
+| `segment.preRollMs` | 400 ms（0–1000） | 句首缓冲，兜住轻声起句 |
 | `autoPauseAfterMs` | 120000 ms（0 = 关闭） | 长静音自动暂停 |
 | `subtitle.fontSize` | 20 | |
 | `subtitle.maxLines` | 3（2–5） | **句子行数**，不是文本块数 |
@@ -109,12 +110,12 @@ client.js（DSH 页面的 shell.overlay 槽位，右下角控制条）
 - 静音时保留历史，不自动关闭；**停止翻译**（⏸ / `/rt stop` / dispose）会清空并关闭字幕窗；`/rt restart` 不清屏。
 - 新译文出现后至少保留 `minReadMs` 才允许滚出，必要时短暂多显示一行（`maxLines + 1`）。
 - 字幕窗可鼠标拖动；拖动位置只在当前会话保持，初始位置底部居中。没有顶部/底部配置。
-- 托盘：**左键**开始/停止；**右键只有「退出」**。退出只关闭 overlay/托盘，之后从控制条 ▶、`Ctrl+Alt+S` 或 `/rt start` 可重新拉起，无需重启 DSH。
+- 托盘：**左键**开始/停止；**右键只有「退出」**。退出只关闭 overlay/托盘，之后从控制页 ▶、`Ctrl+Alt+S` 或 `/rt start` 可重新拉起，无需重启 DSH。
 - 全局热键：`Ctrl+Alt+S`（开始/停止）、`Ctrl+Alt+C`（清屏）、`Ctrl+Alt+↑/↓`（字号）、`Ctrl+Alt+B`（双语）。
 - 已移除、不要无意加回：会议/影视模式与 `/rt mode`、片名术语表与 `/rt title`、独立 WPF 控制条与设置窗、鼠标热区、`Ctrl+Alt+H`、`/rt ui`、`ui.controlBar*`/`showStatusDot`、`subtitle.position`、`subtitle.display`。
-- 控制面板：语言、静音切分（ms）、单句最长（显示 s，存 ms）、自动暂停（关闭/1/2/5/10 分钟）、字号、行数、透明度、显示原文、阅读时间、清屏/重连音频/准备模型。
+- 控制页（左侧导航「实时翻译」，不覆盖对话）：语言、静音切分（ms）、单句最长（显示 s，存 ms）、自动暂停（关闭/1/2/5/10 分钟）、字号、行数、透明度、显示原文、阅读时间、清屏/重连音频/准备模型/**默认配置**（`resetDefaults`：恢复切分、自动暂停与字幕默认值，语言不动，播放中重连采集）。
 
-## 6. 控制条接口
+## 6. 控制页接口
 
 - `GET /plugins/dsh-rt-translation/state`：返回 `{ ok, value: { state, subtitle, segment, autoPauseAfterMs, capture, translate, stt, persistence } }`。
 - `POST /plugins/dsh-rt-translation/action`：body `{ action, value? }`，动作白名单见 `src/subtitle/protocol.ts` 的 `PANEL_ACTIONS`。
@@ -161,8 +162,20 @@ client.js（DSH 页面的 shell.overlay 槽位，右下角控制条）
 
 - 必须是普通 bundle：`window.__ModuleLoader__.load({ id: 'dsh-rt-translation', factory(require) { ... } })`。
 - 只能从模块表 `require('react')`；没有 JSX、没有构建、不要新增依赖。
-- 用 `shell.overlay` 槽位，`ctx.slots.inject(...)` + `ctx.slots.register(...)`；面板展开/收起由组件自身状态控制，不要访问其它插件的 DOM。
-- 主题色用 `--dsw-alias-*` 变量（如 `--dsw-alias-bg-layer-1`、`--dsw-alias-label-primary`）。
+- 全局页用**两个槽位、一个 id**：左侧入口 `sidebar.panellist`（`{ id, order, label: () => '…' }` + 图标组件，图标接收 `size`/`active`，用 `currentColor` 画 SVG）与主区页面 `main`（`{ key: 同一个 id }` + 页面组件）。侧边栏点击时由宿主调用 `ctx.layout.selectPanel(id)`，两个 key 必须一致。
+- **不要注册 `shell.overlay`**：它浮在三栏之上，会盖住页面内容（本轮就是因此把右下角悬浮条迁走的）。
+- 页面组件从 `main` 槽位拿到的是运行时 props（`renderSlot`、`useSlotStore` 等）；本插件的页面不依赖它们，自己用 `useState`/轮询即可。页面只在被选中时挂载，所以轮询天然随页面开关。
+- 参考实现（随发行版一起装）：`dsh-client-ui-plugin-manager/src/client/index.ts` 的 `main` + `sidebar.panellist` 注册，以及 `PluginsPanelIcon.tsx` 的图标写法。
+- 不要 `require('@deepseek-ai/dsh-client-ui-primitives')` 或其它 Harness Client 包；控件自己写，样式只引用 `--dsw-alias-*`。
+- 主题色用 `--dsw-alias-*` 变量（如 `--dsw-alias-bg-layer-1`、`--dsw-alias-label-primary`）；页面留白与排版参考同类的管理页（标题 20px、卡片 12px 圆角、`maxWidth` 880）。
+
+### 分段器（src/audio/vad.ts）
+
+- `finalize()` **保留整段音频**（含句尾轻声）。不要恢复「最后一个过门限帧 + 100ms」式裁剪：会议里句尾降调、语气词常比句首低十几 dB，被裁掉时屏幕上就是「只有前半句」。
+- 起段门限 `max(噪声底*2.5, 320)`，断段门限 `min(max(噪声底*1.5,140), 起段*0.7)`：滞回，句内轻声字不算静音。
+- 噪声底**只在 idle 且低于起段门限时**更新：否则一句话的头几个音节会抬高本次语音期间的门限，把句尾判成静音。
+- `preRollMs`（默认 400）兜住轻声起句；`silenceMs` 低于约 300 ms 会把一句话按换气切碎，控制页提示也以此为准。
+- 改这里必须补 `tests/vad.test.ts` 的回归用例（轻声句尾/句首、句中轻声字、停顿阈值、强制切分）。
 
 ### 协议与状态
 
@@ -173,7 +186,7 @@ client.js（DSH 页面的 shell.overlay 槽位，右下角控制条）
 ### 提交与文档
 
 - 分支 `main`；提交信息用 `feat:` / `fix:` / `style:` / `docs:` 前缀，英文短句。
-- 每次改行为同步更新 `README.md`、`docs/handoff-2026-11-24.md`，必要时补设计文档的修订节。
+- 每次改行为同步更新 `README.md`、`AGENTS.md`、`docs/handoff-2026-11-24.md`，必要时补设计文档的修订节。
 - Windows PowerShell 传多行 commit message 容易因引号拆参数，建议写临时文件后 `git commit -F <file>`。
 
 ## 8. 测试与人工验收
@@ -189,12 +202,12 @@ npm run test:icon
 人工（改 Host/overlay 后）：
 
 1. 完全退出 DSH 并重开；打开 DSH 页面。
-2. 右下角控制条应显示「实时翻译 / 已停止」；点 ▶ → 准备模型 → 收听中。
+2. 左侧导航应出现「实时翻译」；点开页面应显示「已停止」，点 ▶ → 准备模型 → 收听中。页面不覆盖对话内容。
 3. 播一段带语音的音频：最后一行是当前句，上方是历史；停止说话后历史保留。
 4. 拖动字幕窗到别处；调透明度、字号、行数、静音切分、单句最长、自动暂停应即时生效。
 5. ⏸ / `/rt stop` 应关闭字幕窗；再次 ▶ 应重新打开。
-6. 托盘左键开始/停止；右键只有「退出」；退出后从控制条再开始应能重新拉起托盘。
-7. 若控制条报错，先看 `%TEMP%\dsh-rt-translation.log`（`src/index.ts` 仍有临时诊断日志，验证稳定后可删）。
+6. 托盘左键开始/停止；右键只有「退出」；退出后从控制页再开始应能重新拉起托盘。
+7. 若控制页报错，先看 `%TEMP%\dsh-rt-translation.log`（`src/index.ts` 仍有临时诊断日志，验证稳定后可删）。
 
 ## 9. 隐私与安全
 
