@@ -115,7 +115,7 @@ test('页面在拿到快照前显示标题与连接提示', () => {
 })
 
 /** Render the page far enough to reach the connected branch: hooks update, effects run, fetch resolves. */
-async function renderConnectedPage(afterMount?: (tree: unknown) => void) {
+async function renderConnectedPage(afterMount?: (tree: unknown) => void, overrides: { translate?: Record<string, unknown> } = {}) {
   const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
   const snapshot = {
     state: { running: false, phase: 'idle', source: 'auto', target: 'zh', error: null },
@@ -123,7 +123,7 @@ async function renderConnectedPage(afterMount?: (tree: unknown) => void) {
     segment: { silenceMs: 550, maxSegmentMs: 8000 },
     autoPauseAfterMs: 120000,
     capture: { mode: 'system-exclude-self', appName: '' },
-    translate: { provider: '', model: '', background: '', backgroundBrief: '', glossary: [], glossaryError: null },
+    translate: { provider: '', model: '', background: '', backgroundBrief: '', glossary: [], glossaryError: null, ...(overrides.translate ?? {}) },
     stt: '待机',
     persistence: true,
   }
@@ -260,6 +260,33 @@ test('连接后的页面渲染翻译背景卡，且 textarea 不携带 children�
   for (const textarea of textareas) {
     assert.equal((textarea.props as { children?: unknown }).children, undefined)
   }
+})
+
+/** Find divs whose direct children include a button with the given label. */
+function rowsWithButton(tree: unknown, label: string): Array<{ props?: { children?: unknown } }> {
+  const rows: Array<{ props?: { children?: unknown } }> = []
+  const visit = (node: unknown) => {
+    if (Array.isArray(node)) { for (const child of node) visit(child); return }
+    if (!node || typeof node !== 'object') return
+    const element = node as { type?: unknown; props?: { children?: unknown } }
+    const children = Array.isArray(element.props?.children) ? element.props.children : [element.props?.children]
+    const hasButton = children.some(child => child !== null && typeof child === 'object'
+      && (child as { type?: unknown }).type === 'button'
+      && treeText(child).includes(label))
+    if (element.type === 'div' && hasButton) rows.push(element as never)
+    visit(element.props?.children)
+  }
+  visit(tree)
+  return rows
+}
+
+test('提炼失败/前置条件的提示显示在按钮右侧，而不是卡片底部', async () => {
+  const message = '请先在「语言」里选择源语言——「自动」时无法提炼背景与词表'
+  const tree = await renderConnectedPage(undefined, { translate: { glossaryError: message } })
+  const rows = rowsWithButton(tree, '提炼背景并生成词表')
+  assert.ok(rows.length > 0, '应找到含提炼按钮的行')
+  assert.ok(rows.some(row => treeText(row).includes(message)), '提示应与按钮在同一行')
+  assert.equal((treeText(tree).match(/请先在「语言」里选择源语言/g) ?? []).length, 1, '提示只应出现一次')
 })
 
 test('聚焦各输入框后页面仍能渲染（草稿状态不能当数组用）', async () => {

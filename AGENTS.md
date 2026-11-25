@@ -24,7 +24,7 @@
 | 命令 | 作用 | 备注 |
 | --- | --- | --- |
 | `npm install` | 安装插件自身依赖 | 链接安装不会自动装，缺了插件加载失败 |
-| `npm test` | 单元/集成测试（`node --test`，116 个） | 提交前必须通过 |
+| `npm test` | 单元/集成测试（`node --test`，117 个） | 提交前必须通过 |
 | `npm run test:overlay` | 行窗口 + 多屏位置自检（9 + 5 个断言，不弹窗） | 改 `overlay.ps1` 行选择/窗口定位后必跑 |
 | `npm run test:icon` | 托盘图标生成自检（`PASS tray icon 32x32`） | 改 `assets/icon.jpeg` / 图标代码后跑 |
 | `powershell ... overlay.ps1 -SelfTest` | 弹 1.5 秒字幕窗，验证 WPF 渲染 | 需要桌面会话 |
