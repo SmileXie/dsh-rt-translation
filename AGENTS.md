@@ -24,7 +24,7 @@
 | 命令 | 作用 | 备注 |
 | --- | --- | --- |
 | `npm install` | 安装插件自身依赖 | 链接安装不会自动装，缺了插件加载失败 |
-| `npm test` | 单元/集成测试（`node --test`，91 个） | 提交前必须通过 |
+| `npm test` | 单元/集成测试（`node --test`，112 个） | 提交前必须通过 |
 | `npm run test:overlay` | 行窗口 + 多屏位置自检（9 + 5 个断言，不弹窗） | 改 `overlay.ps1` 行选择/窗口定位后必跑 |
 | `npm run test:icon` | 托盘图标生成自检（`PASS tray icon 32x32`） | 改 `assets/icon.jpeg` / 图标代码后跑 |
 | `powershell ... overlay.ps1 -SelfTest` | 弹 1.5 秒字幕窗，验证 WPF 渲染 | 需要桌面会话 |
@@ -92,6 +92,8 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 | `capture.mode` | `system-exclude-self` | 排除 DSH 自身播放 |
 | `stt` | `sensevoice-local`，临时结果开，900 ms | |
 | `translate` | 不指定 provider/model（跟随 DSH 默认），上下文 2 轮 | |
+| `translate.background` / `translate.backgroundBrief` | `''` / `''` | 控制页「翻译背景」原始输入与提炼摘要（≤2000 / ≤300 字符）；摘要每句进 prompt |
+| `translate.glossary` | `[]` | 术语表（≤200 行 × 120 字符），可直接写 profile；每句只注入命中的 ≤12 条 |
 | `segment.silenceMs` | 550 ms（100–3000） | 静音切分；短于正常分句停顿会把一句切成两半 |
 | `segment.maxSegmentMs` | 8000 ms（1000–30000） | 单句最长 |
 | `segment.preRollMs` | 400 ms（0–1000） | 句首缓冲，兜住轻声起句 |
@@ -107,18 +109,19 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 行为要点：
 
 - 字幕窗显示最近 `maxLines` 句：最后一行是当前句，上方是历史；历史行透明度 0.7。
+- 翻译 prompt 依次是 `[Background]`（摘要）、`[Glossary]`（本句命中的词条）、`[Recent context]`、`[Current]`；任一为空时整段省略。词条按大小写不敏感子串匹配本句原文，最多 12 条，所以词表可以很长而不拖慢每句请求。
 - 静音时保留历史，不自动关闭；**停止翻译**（⏸ / `/rt stop` / dispose）会清空并关闭字幕窗；`/rt restart` 不清屏。
 - 新译文出现后至少保留 `minReadMs` 才允许滚出，必要时短暂多显示一行（`maxLines + 1`）。
 - 字幕窗可鼠标拖动；拖动位置只在当前会话保持，初始位置底部居中。拖到任意显示器后都留在该屏幕，不会被主屏工作区钳回。没有顶部/底部配置。
 - 托盘：**左键**开始/停止；**右键只有「退出」**。退出只关闭 overlay/托盘，之后从控制页 ▶、`Ctrl+Alt+S` 或 `/rt start` 可重新拉起，无需重启 DSH。
 - 全局热键：`Ctrl+Alt+S`（开始/停止）、`Ctrl+Alt+C`（清屏）、`Ctrl+Alt+↑/↓`（字号）、`Ctrl+Alt+B`（双语）。
 - 已移除、不要无意加回：会议/影视模式与 `/rt mode`、片名术语表与 `/rt title`、独立 WPF 控制条与设置窗、鼠标热区、`Ctrl+Alt+H`、`/rt ui`、`ui.controlBar*`/`showStatusDot`、`subtitle.position`、`subtitle.display`。
-- 控制页（左侧导航「实时翻译」，不覆盖对话）：语言、静音切分（ms）、单句最长（显示 s，存 ms）、自动暂停（关闭/1/2/5/10 分钟）、字号、行数、透明度、显示原文、阅读时间、清屏/重连音频/准备模型/**默认配置**（`resetDefaults`：恢复切分、自动暂停与字幕默认值，语言不动，播放中重连采集）。
+- 控制页（左侧导航「实时翻译」，不覆盖对话）：语言、**翻译背景**（背景输入 → 准备词汇 → 背景摘要与术语表，可改可清空）、静音切分（ms）、单句最长（显示 s，存 ms）、自动暂停（关闭/1/2/5/10 分钟）、字号、行数、透明度、显示原文、阅读时间、清屏/重连音频/准备模型/**默认配置**（`resetDefaults`：恢复切分、自动暂停与字幕默认值，语言不动，播放中重连采集）。
 
 ## 6. 控制页接口
 
 - `GET /plugins/dsh-rt-translation/state`：返回 `{ ok, value: { state, subtitle, segment, autoPauseAfterMs, capture, translate, stt, persistence } }`。
-- `POST /plugins/dsh-rt-translation/action`：body `{ action, value? }`，动作白名单见 `src/subtitle/protocol.ts` 的 `PANEL_ACTIONS`。
+- `POST /plugins/dsh-rt-translation/action`：body `{ action, value? }`，动作白名单见 `src/subtitle/protocol.ts` 的 `PANEL_ACTIONS`；背景相关动作是 `setBackground`、`setBrief`、`setGlossary`、`prepareGlossary`。
 - 鉴权：`ctx.get('connection').requestRejection(req)`（Host/Origin + DSH 会话）。Connection 未就绪返回 503。
 - 路由用 `webServer.register({ kind: 'exact', path, handler })` 注册，并监听 `internal/service` 事件在 `webServer`/`connection` 晚绑定时重试。**不要改用 `ctx.connection.rpc.handle` 自定义通道**：在本机 Desktop 组合里该通道不会落到 HTTP 路由（曾导致 405）。
 
