@@ -9,6 +9,8 @@ export interface TranslateRequest {
   target: Language
   context: TranslationContext[]
   glossary: string[]
+  /** Distilled background injected into every prompt; omitted when empty. */
+  brief?: string
   signal: AbortSignal
 }
 
@@ -36,6 +38,22 @@ const NAMES: Record<SourceLanguage, string> = {
   zh: 'Chinese', en: 'English', ja: 'Japanese', ko: 'Korean', yue: 'Cantonese',
 }
 
+/** Keep only glossary entries whose source form occurs in the sentence. */
+export function selectGlossary(text: string, glossary: string[], limit = 12): string[] {
+  const haystack = text.toLowerCase()
+  const picked: string[] = []
+  const seen = new Set<string>()
+  for (const entry of glossary) {
+    if (entry.trim() === '' || seen.has(entry)) continue
+    const from = (entry.split('=')[0] ?? '').trim().toLowerCase()
+    if (from === '' || !haystack.includes(from)) continue
+    seen.add(entry)
+    picked.push(entry)
+    if (picked.length >= limit) break
+  }
+  return picked
+}
+
 /** Compose the system and user messages for one subtitle line. */
 export function buildPrompt(req: TranslateRequest): { system: string; user: string } {
   const system = [
@@ -44,7 +62,10 @@ export function buildPrompt(req: TranslateRequest): { system: string; user: stri
     'Keep proper nouns consistent. Keep it concise and natural for subtitles; do not merge or omit information.',
   ].join('\n')
   const parts: string[] = []
-  if (req.glossary.length > 0) parts.push(`[Glossary]\n${req.glossary.join('\n')}`)
+  const brief = req.brief?.trim() ?? ''
+  if (brief !== '') parts.push(`[Background]\n${brief}`)
+  const matched = selectGlossary(req.text, req.glossary)
+  if (matched.length > 0) parts.push(`[Glossary]\n${matched.join('\n')}`)
   if (req.context.length > 0) {
     parts.push(`[Recent context]\n${req.context.map(pair => `原文: ${pair.source}\n译文: ${pair.target}`).join('\n')}`)
   }
