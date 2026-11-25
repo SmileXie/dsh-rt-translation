@@ -8,7 +8,7 @@ export interface Config {
   targetLanguage?: Language
   capture?: { mode?: 'system' | 'system-exclude-self' | 'app'; appName?: string }
   stt?: { providerId?: string; partials?: boolean; partialIntervalMs?: number }
-  translate?: { provider?: string; model?: string; contextTurns?: number; followAgentDefault?: boolean; glossary?: string[] }
+  translate?: { provider?: string; model?: string; contextTurns?: number; followAgentDefault?: boolean; background?: string; backgroundBrief?: string; glossary?: string[] }
   segment?: { silenceMs?: number; maxSegmentMs?: number; preRollMs?: number }
   /** Pause capture after this much silence; 0 disables automatic pause. */
   autoPauseAfterMs?: number
@@ -36,7 +36,7 @@ export interface ResolvedSettings {
   targetLanguage: Language
   capture: { mode: 'system' | 'system-exclude-self' | 'app'; appName: string }
   stt: { providerId: string; partials: boolean; partialIntervalMs: number }
-  translate: { provider: string; model: string; contextTurns: number; followAgentDefault: boolean; glossary: string[] }
+  translate: { provider: string; model: string; contextTurns: number; followAgentDefault: boolean; background: string; backgroundBrief: string; glossary: string[] }
   segment: { silenceMs: number; maxSegmentMs: number; preRollMs: number }
   autoPauseAfterMs: number
   subtitle: {
@@ -77,6 +77,8 @@ export const Config = z.object({
     model: z.string(),
     contextTurns: z.natural().min(0).max(10),
     followAgentDefault: z.boolean(),
+    background: z.string().max(2000),
+    backgroundBrief: z.string().max(300),
     glossary: z.array(z.string()),
   }),
   segment: z.object({
@@ -120,6 +122,8 @@ export function resolveConfig(input: Config): ResolvedSettings {
       model: input.translate?.model ?? '',
       contextTurns: input.translate?.contextTurns ?? 2,
       followAgentDefault: input.translate?.followAgentDefault ?? true,
+      background: input.translate?.background ?? '',
+      backgroundBrief: input.translate?.backgroundBrief ?? '',
       glossary: input.translate?.glossary ?? [],
     },
     segment: {

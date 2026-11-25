@@ -31,6 +31,17 @@ test('显式字段覆盖默认值', () => {
   assert.equal(s.subtitle.maxLines, 3)
 })
 
+test('翻译背景与摘要默认空，且可显式覆盖', () => {
+  const defaults = resolveConfig({})
+  assert.equal(defaults.translate.background, '')
+  assert.equal(defaults.translate.backgroundBrief, '')
+  assert.deepEqual(defaults.translate.glossary, [])
+
+  const explicit = resolveConfig({ translate: { background: '看《哈利·波特与魔法石》', backgroundBrief: '魔法学校观影场景' } })
+  assert.equal(explicit.translate.background, '看《哈利·波特与魔法石》')
+  assert.equal(explicit.translate.backgroundBrief, '魔法学校观影场景')
+})
+
 test('非法语言与分段值在 schema 层被拒绝', () => {
   assert.throws(() => Config({ targetLanguage: 'de' } as never))
   assert.throws(() => Config({ segment: { silenceMs: 10 } } as never))
