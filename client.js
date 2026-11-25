@@ -219,7 +219,6 @@ window.__ModuleLoader__.load({
       const [bgDraft, setBgDraft] = useState(null)
       const [briefDraft, setBriefDraft] = useState(null)
       const [glossDraft, setGlossDraft] = useState(null)
-      const [briefOpen, setBriefOpen] = useState(false)
       const [glossOpen, setGlossOpen] = useState(false)
       const [preparing, setPreparing] = useState(false)
       const [clearArmed, setClearArmed] = useState(false)
@@ -332,29 +331,22 @@ window.__ModuleLoader__.load({
       }
       const fieldStyle = { ...S.select, width: '100%', maxWidth: '100%', boxSizing: 'border-box', padding: '6px 8px', fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12, lineHeight: 1.5, resize: 'vertical', whiteSpace: 'pre' }
 
-      const briefRow = briefOpen
-        ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
-          h('div', { style: P.row },
-            h('span', { style: S.label }, '背景摘要'),
-            h('span', { style: P.hint }, '会进每句 prompt'),
-            h('button', { style: S.smallButton, title: '收起', onClick: () => { blurBrief(); setBriefOpen(false) } }, '×'),
-          ),
-          h('textarea', {
-            rows: 3,
-            value: brief,
-            maxLength: 300,
-            placeholder: '一两句话说清在听什么、谁是谁；留空则不注入',
-            style: fieldStyle,
-            onFocus: () => { if (briefDraft === null) setBriefDraft(tr.backgroundBrief || '') },
-            onChange: event => setBriefDraft(event.target.value),
-            onBlur: blurBrief,
-          }),
-        )
-        : h('div', { style: P.row },
+      const briefRow = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+        h('div', { style: P.row },
           h('span', { style: S.label }, '背景摘要'),
-          h('span', { style: S.muted }, brief === '' ? '填背景后点「提炼背景并生成词表」，或手写摘要' : `${brief.length} 字 · 会进 prompt`),
-          h('button', { style: S.button, onClick: () => { setBriefOpen(true) } }, brief === '' ? '手写' : '改'),
-        )
+          h('span', { style: P.hint }, `会进每句 prompt${brief === '' ? '' : ` · ${brief.length} 字`}`),
+        ),
+        h('textarea', {
+          rows: 3,
+          value: brief,
+          maxLength: 300,
+          placeholder: '一两句话说清在听什么、谁是谁；留空则不注入',
+          style: fieldStyle,
+          onFocus: () => { if (briefDraft === null) setBriefDraft(tr.backgroundBrief || '') },
+          onChange: event => setBriefDraft(event.target.value),
+          onBlur: blurBrief,
+        }),
+      )
 
       const glossarySection = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
         h('div', { style: P.row },

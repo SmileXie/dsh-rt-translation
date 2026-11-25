@@ -252,22 +252,26 @@ test('连接后的页面渲染翻译背景卡，且 textarea 不携带 children�
   assert.match(treeText(tree), /提炼背景并生成词表/)
   assert.equal(treeText(tree).includes('用当前翻译模型提炼背景并生成词表'), false, '按钮右侧的说明小字应已删除')
   const textareas = collectByType(tree, 'textarea')
-  assert.ok(textareas.length > 0, '背景卡应包含 textarea')
+  assert.ok(textareas.length >= 3, '背景、背景摘要、术语都应是输入框')
+  const placeholders = textareas.map(textarea => String(textarea.props.placeholder ?? ''))
+  assert.ok(placeholders.some(value => value.includes('一两句话说清')), '背景摘要应直接显示为文本框')
+  assert.ok(placeholders.some(value => value.includes('原文=译文')), '术语应有文本框')
+  assert.equal(treeText(tree).includes('手写'), false, '摘要不再需要「手写」切换')
   for (const textarea of textareas) {
     assert.equal((textarea.props as { children?: unknown }).children, undefined)
   }
 })
 
-test('聚焦术语输入框后页面仍能渲染（草稿状态不能当数组用）', async () => {
-  let focused = false
+test('聚焦各输入框后页面仍能渲染（草稿状态不能当数组用）', async () => {
+  let focused = 0
   const tree = await renderConnectedPage(first => {
-    const area = collectByType(first, 'textarea').find(entry => String(entry.props.placeholder ?? '').includes('原文=译文'))
-    assert.ok(area !== undefined, '应有术语输入框')
-    assert.equal(typeof area.props.onFocus, 'function')
-    ;(area.props.onFocus as () => void)()
-    focused = true
+    for (const area of collectByType(first, 'textarea')) {
+      assert.equal(typeof area.props.onFocus, 'function')
+      ;(area.props.onFocus as () => void)()
+      focused += 1
+    }
   })
-  assert.equal(focused, true)
+  assert.ok(focused >= 3, '背景、背景摘要、术语三个输入框都要能聚焦')
   assert.match(treeText(tree), /翻译背景/)
   assert.match(treeText(tree), /术语/)
 })
