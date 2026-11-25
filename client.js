@@ -293,8 +293,11 @@ window.__ModuleLoader__.load({
       const tr = snap.translate || {}
       const bg = bgDraft ?? tr.background ?? ''
       const brief = briefDraft ?? tr.backgroundBrief ?? ''
-      const glossary = glossDraft ?? (tr.glossary || [])
-      const glossText = glossary.join('\n')
+      // The draft is raw textarea text, not an array: derive the list from it while editing.
+      const glossary = glossDraft === null
+        ? (tr.glossary || [])
+        : glossDraft.split(/\r?\n/).filter(line => line.trim() !== '')
+      const glossText = glossDraft ?? glossary.join('\n')
       const glossaryCollapsed = glossary.length > 8 && !glossOpen
 
       const blurBackground = () => {
