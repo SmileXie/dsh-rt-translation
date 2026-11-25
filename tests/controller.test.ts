@@ -17,7 +17,18 @@ function fake(over: { prepareFails?: boolean } = {}) {
     patchSettings: async () => {},
     settings: () => d.settingsValue,
     stt: { prepare() {}, async ensureReady() { order.push('prepare'); if (over.prepareFails) throw new Error('boom') }, async transcribe() { return { text: 'x', audioSeconds: 1, inferenceSeconds: 0 } }, status: () => '' },
-    translator: { async *translate() {}, async route() { return { provider: 'p', model: 'm' } } },
+    translator: {
+      async *translate() {},
+      async route() { return { provider: 'p', model: 'm' } },
+      prepareCalls: 0,
+      prepareResult: { brief: '', glossary: [] as string[] },
+      prepareError: undefined as Error | undefined,
+      async prepareGlossary() {
+        d.translator.prepareCalls += 1
+        if (d.translator.prepareError !== undefined) throw d.translator.prepareError
+        return d.translator.prepareResult
+      },
+    },
     renderer: { start: async () => { d.rendererStarts++ }, close: async () => { d.rendererCloses++ }, cue() {}, style() {}, ui() {}, clear() { d.cleared++ }, onAction() {}, dispose: async () => {} },
     subtitles: { upsertSource() {}, beginTranslation() {}, appendTranslation() {}, finishCue() {}, clear() { d.subtitlesCleared++ }, configure() {}, tick() {}, snapshot: () => [] },
     capture: { open() { d.opened++; order.push('open'); return { close() { d.closed++ }, lastError: null as string | null } } },
@@ -237,4 +248,77 @@ test('设置无法持久化时 status 明确标注', () => {
   ;(d as { persistence?: () => boolean }).persistence = () => false
   const c = new Controller(d as never)
   assert.match(c.status(), /未写入 profile/)
+})
+
+function withPatch(d: ReturnType<typeof fake>) {
+  d.patchSettings = (async (patch: Partial<typeof d.settingsValue>) => {
+    d.settingsValue = { ...d.settingsValue, ...patch }
+  }) as never
+  return d
+}
+
+test('setBackground / setBrief / setGlossary 写 profile 并互不影响', async () => {
+  const d = withPatch(fake())
+  const c = new Controller(d as never)
+
+  await c.setBackground('看《哈利·波特与魔法石》')
+  assert.equal(d.settingsValue.translate.background, '看《哈利·波特与魔法石》')
+  assert.deepEqual(d.settingsValue.translate.glossary, [])
+
+  await c.setBrief('魔法学校观影场景')
+  assert.equal(d.settingsValue.translate.backgroundBrief, '魔法学校观影场景')
+
+  await c.setGlossary(['Hermione=赫敏'])
+  assert.deepEqual(d.settingsValue.translate.glossary, ['Hermione=赫敏'])
+  assert.equal(d.settingsValue.translate.background, '看《哈利·波特与魔法石》')
+})
+
+test('prepareGlossary 写入摘要与词表并清空错误', async () => {
+  const d = withPatch(fake())
+  d.settingsValue = resolveConfig({ translate: { background: '看《哈利·波特与魔法石》' } })
+  d.translator.prepareResult = { brief: '魔法学校观影场景', glossary: ['Hermione=赫敏'] }
+  const c = new Controller(d as never)
+
+  await c.prepareGlossary()
+
+  assert.equal(d.translator.prepareCalls, 1)
+  assert.equal(d.settingsValue.translate.backgroundBrief, '魔法学校观影场景')
+  assert.deepEqual(d.settingsValue.translate.glossary, ['Hermione=赫敏'])
+  assert.equal(c.glossaryError(), null)
+})
+
+test('prepareGlossary 背景为空时不调用模型', async () => {
+  const d = withPatch(fake())
+  const c = new Controller(d as never)
+
+  await c.prepareGlossary()
+
+  assert.equal(d.translator.prepareCalls, 0)
+  assert.equal(c.glossaryError(), '先填写翻译背景')
+})
+
+test('prepareGlossary 失败保留旧值并记录错误', async () => {
+  const d = withPatch(fake())
+  d.settingsValue = resolveConfig({ translate: { background: '电影', backgroundBrief: '旧摘要', glossary: ['旧=旧词'] } })
+  d.translator.prepareError = new Error('down')
+  const c = new Controller(d as never)
+
+  await c.prepareGlossary()
+
+  assert.equal(d.settingsValue.translate.backgroundBrief, '旧摘要')
+  assert.deepEqual(d.settingsValue.translate.glossary, ['旧=旧词'])
+  assert.equal(c.glossaryError(), 'down')
+})
+
+test('prepareGlossary 空结果保留旧值并给出提示', async () => {
+  const d = withPatch(fake())
+  d.settingsValue = resolveConfig({ translate: { background: '电影', backgroundBrief: '旧摘要', glossary: ['旧=旧词'] } })
+  d.translator.prepareResult = { brief: '', glossary: [] }
+  const c = new Controller(d as never)
+
+  await c.prepareGlossary()
+
+  assert.equal(d.settingsValue.translate.backgroundBrief, '旧摘要')
+  assert.deepEqual(d.settingsValue.translate.glossary, ['旧=旧词'])
+  assert.equal(c.glossaryError(), '未生成内容，可手填或换个说法')
 })

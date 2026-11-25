@@ -49,6 +49,7 @@ export class Controller {
   private captureRetrying = false
   private captureOpenedAt = 0
   private readonly backoff: number[]
+  private glossaryErrorValue: string | null = null
 
   constructor(deps: ControllerDeps) {
     this.deps = deps
@@ -184,6 +185,61 @@ export class Controller {
     this.emit()
   }
 
+  /** Store the raw background text; the glossary stays untouched. */
+  async setBackground(text: string): Promise<void> {
+    await this.patchTranslate({ background: text })
+    this.emit()
+  }
+
+  /** Store an edited background brief. */
+  async setBrief(text: string): Promise<void> {
+    await this.patchTranslate({ backgroundBrief: text })
+    this.emit()
+  }
+
+  /** Store an edited glossary; an empty array clears it. */
+  async setGlossary(lines: string[]): Promise<void> {
+    await this.patchTranslate({ glossary: lines })
+    this.emit()
+  }
+
+  /** Last preparation outcome, shown in the panel. */
+  glossaryError(): string | null {
+    return this.glossaryErrorValue
+  }
+
+  /** Ask the model for a brief and glossary from the current background. */
+  async prepareGlossary(): Promise<void> {
+    const settings = this.deps.settings()
+    const background = settings.translate.background.trim()
+    if (background === '') {
+      this.glossaryErrorValue = '先填写翻译背景'
+      this.emit()
+      return
+    }
+    try {
+      const result = await this.deps.translator.prepareGlossary({
+        background,
+        source: settings.sourceLanguage,
+        target: settings.targetLanguage,
+        signal: AbortSignal.timeout(60_000),
+      })
+      if (result.brief === '' && result.glossary.length === 0) {
+        this.glossaryErrorValue = '未生成内容，可手填或换个说法'
+        this.emit()
+        return
+      }
+      const patch: Partial<ResolvedSettings['translate']> = {}
+      if (result.brief !== '') patch.backgroundBrief = result.brief
+      if (result.glossary.length > 0) patch.glossary = result.glossary
+      await this.patchTranslate(patch)
+      this.glossaryErrorValue = null
+    } catch (error) {
+      this.glossaryErrorValue = error instanceof Error ? error.message : String(error)
+    }
+    this.emit()
+  }
+
   /** Clear visible subtitles without stopping capture. */
   clear(): void {
     this.deps.subtitles.clear()
@@ -203,6 +259,7 @@ export class Controller {
       target: settings.targetLanguage,
       context: [],
       glossary: [...settings.translate.glossary],
+      brief: settings.translate.backgroundBrief,
       signal: AbortSignal.timeout(30_000),
     })) { translated += delta; this.deps.subtitles.appendTranslation(id, delta) }
     this.deps.subtitles.finishCue(id, Date.now())
@@ -360,6 +417,11 @@ export class Controller {
   private emit(): void {
     const state = this.state()
     for (const listener of this.listeners) listener(state)
+  }
+
+  private async patchTranslate(patch: Partial<ResolvedSettings['translate']>): Promise<void> {
+    const translate = { ...this.deps.settings().translate, ...patch }
+    await this.deps.patchSettings({ translate })
   }
 
   private applySubtitle(): void {
