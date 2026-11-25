@@ -24,7 +24,7 @@ import { Pipeline } from './pipeline.ts'
 import { registerCommands } from './commands.ts'
 import { registerTool } from './tool.ts'
 import { dispatchAction } from './ui.ts'
-import { registerPanelRoutes, type PanelConnection, type PanelWebServer } from './panel.ts'
+import { registerPanelRoutes, type PanelWebServer } from './panel.ts'
 export { Config } from './config.ts'
 export const name = 'rt-translation'
 export const inject = ['speechToText', 'llm', 'commands', 'tools', 'subprocess']
@@ -150,11 +150,6 @@ export function apply(ctx: Context, config: Volatile<RtConfig>): void {
   }
   debugBridge(`apply pid=${process.pid}`)
   let panelRegistered = false
-  const getConnection = (): PanelConnection | undefined => {
-    const connection = services.get('connection') as PanelConnection | undefined
-    if (connection !== undefined) debugBridge('connection service ok')
-    return connection
-  }
   const registerPanel = (): void => {
     if (panelRegistered) return
     const webServer = services.get('webServer') as PanelWebServer | undefined
@@ -163,7 +158,7 @@ export function apply(ctx: Context, config: Volatile<RtConfig>): void {
     panelRegistered = true
     try {
       services.effect(
-        () => registerPanelRoutes(webServer, getConnection, panelDeps),
+        () => registerPanelRoutes(webServer, panelDeps),
         'rt-translation: control panel routes',
       )
       debugBridge('routes registered: state + action')
@@ -178,7 +173,7 @@ export function apply(ctx: Context, config: Volatile<RtConfig>): void {
   try {
     services.on('internal/service', name => {
       debugBridge(`internal/service ${name}`)
-      if (name === 'webServer' || name === 'connection') registerPanel()
+      if (name === 'webServer') registerPanel()
     })
   } catch (error) {
     debugBridge(`service watch failed: ${String(error)}`)

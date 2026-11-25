@@ -1,4 +1,9 @@
 # Development patch: loads the plugin straight from this checkout.
+# Use this file for `dsh web --patch <repo>\cordis.patch.yml` (or `pnpm dsh ...`
+# from the DSH repo). Relative entry names are anchored to this file, so
+# ./src/index.ts becomes an absolute file URL and no profile install is needed.
+# Do not use cordis.bundle.patch.yml here: its bare package name only resolves
+# from an installed profile.
 - insert:
     - id: speech-to-text
       name: '@deepseek-ai/dsh-experimental-speech-to-text'
@@ -13,4 +18,3 @@
       config:
         sourceLanguage: auto
         targetLanguage: zh
-        preset: meeting

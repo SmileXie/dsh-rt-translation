@@ -24,7 +24,8 @@
 | 命令 | 作用 | 备注 |
 | --- | --- | --- |
 | `npm install` | 安装插件自身依赖 | 链接安装不会自动装，缺了插件加载失败 |
-| `npm test` | 单元/集成测试（`node --test`，118 个） | 提交前必须通过 |
+| `dsh web --patch .\cordis.patch.yml` | 开发模式从本仓库加载 | 在 DSH 仓库用 `pnpm dsh ...`；必须用 `cordis.patch.yml`，不能传 bundle patch |
+| `npm test` | 单元/集成测试（`node --test`，120 个） | 提交前必须通过 |
 | `npm run test:overlay` | 行窗口 + 多屏位置自检（9 + 5 个断言，不弹窗） | 改 `overlay.ps1` 行选择/窗口定位后必跑 |
 | `npm run test:icon` | 托盘图标生成自检（`PASS tray icon 32x32`） | 改 `assets/icon.jpeg` / 图标代码后跑 |
 | `powershell ... overlay.ps1 -SelfTest` | 弹 1.5 秒字幕窗，验证 WPF 渲染 | 需要桌面会话 |
@@ -76,8 +77,8 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 | `assets/overlay/overlay.ps1` | WPF 叠加窗、托盘、热键、协议处理、行窗口、多屏定位与自检 |
 | `client.js` | DSH 浏览器半：侧边栏入口、「实时翻译」页、fetch 轮询 |
 | `assets/icon.jpeg` | 托盘图标源图（缩放到 32×32） |
-| `cordis.bundle.patch.yml` | `dsh plugin add` 安装用的 bundle patch |
-| `cordis.patch.yml` | 开发模式 `dsh web --patch` 用 |
+| `cordis.bundle.patch.yml` | 安装进 profile 后由 `dsh plugin add` / Desktop 插件页读取的 bundle patch；**不要**传给 `--patch` |
+| `cordis.patch.yml` | 开发模式 `dsh web --patch` 用；入口 `./src/index.ts` 按此文件所在目录锚定 |
 | `tests/*.test.ts` | `node --test`；与 `src` 同构 |
 | `docs/handoff-2026-11-24.md` | 最新变更/决策/待办，改行为后同步更新 |
 | `docs/superpowers/specs/2026-11-20-...md` | 设计文档（含 2026-11-24 多次修订节） |
@@ -123,8 +124,8 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 
 - `GET /plugins/dsh-rt-translation/state`：返回 `{ ok, value: { state, subtitle, segment, autoPauseAfterMs, capture, translate, stt, persistence } }`。
 - `POST /plugins/dsh-rt-translation/action`：body `{ action, value? }`，动作白名单见 `src/subtitle/protocol.ts` 的 `PANEL_ACTIONS`；背景相关动作是 `setBackground`、`setBrief`、`setGlossary`、`prepareGlossary`。
-- 鉴权：`ctx.get('connection').requestRejection(req)`（Host/Origin + DSH 会话）。Connection 未就绪返回 503。
-- 路由用 `webServer.register({ kind: 'exact', path, handler })` 注册，并监听 `internal/service` 事件在 `webServer`/`connection` 晚绑定时重试。**不要改用 `ctx.connection.rpc.handle` 自定义通道**：在本机 Desktop 组合里该通道不会落到 HTTP 路由（曾导致 405）。
+- 鉴权：`webServer.register({ kind: 'exact', path, auth: 'required', handler })`；`webserver/authorize` 瀑布由 Connection 统一做 Host/Origin 栅栏 + DSH 会话校验，handler 只在准入后运行。**不要在 handler 里调用 `connection.requestRejection`**：当前 DSH 已移除该 API（v0.2.2-rc.2 起改用 `admit` / `connection.authentication`），调用会让已登录请求也返回 400。Connection 未就绪时 webServer 返回 503。
+- 路由用 `webServer.register` 注册，并监听 `internal/service` 事件在 `webServer` 晚绑定时重试（只等 `webServer`，不必等 `connection`）。**不要改用 `ctx.connection.rpc.handle` 自定义通道**：在本机 Desktop 组合里该通道不会落到 HTTP 路由（曾导致 405）。
 
 新增一个面板动作的完整路径：
 
@@ -160,7 +161,7 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 ### 类型检查
 
 - `tsconfig.json` 的 `paths` 指向不存在的源码 checkout，`npm run typecheck` 目前失败；不要为此改业务逻辑。
-- 与 DSH 服务交互处使用**本地结构化接口**（如 `panel.ts` 的 `PanelWebServer`/`PanelConnection`）或 `as never`，不要直接 import 未声明依赖的运行时包。
+- 与 DSH 服务交互处使用**本地结构化接口**（如 `panel.ts` 的 `PanelWebServer`）或 `as never`，不要直接 import 未声明依赖的运行时包。
 
 ### 浏览器半（client.js）
 
@@ -180,6 +181,12 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 - 噪声底**只在 idle 且低于起段门限时**更新：否则一句话的头几个音节会抬高本次语音期间的门限，把句尾判成静音。
 - `preRollMs`（默认 400）兜住轻声起句；`silenceMs` 低于约 300 ms 会把一句话按换气切碎，控制页提示也以此为准。
 - 改这里必须补 `tests/vad.test.ts` 的回归用例（轻声句尾/句首、句中轻声字、停顿阈值、强制切分）。
+
+### 部分识别（partial）
+
+- `Pipeline.accept` 在新的 partial 或 final 到来时，只丢弃**尚未开始**的 partial；**不要 abort 正在识别的 active partial**。当前 SenseVoice provider 在识别请求被取消时会停掉本地 worker；abort active partial 会让下一次识别冷启动，逐词字幕永远追不上，最后只剩 final 一次上屏（用户看到的就是「整句说完才一下打印出来」）。
+- 队列里最多保留一个待识别 partial，新的 partial 会替换旧的；final 会清掉待识别 partial，但等 active partial 完成后再开始，所以 final 的文本最终会覆盖临时文本。
+- 改这里必须跑 `tests/pipeline.test.ts` 的两条回归用例：慢 partial 不被新 partial 取消并先上屏；final 等它完成后再覆盖。
 
 ### 协议与状态
 

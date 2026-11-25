@@ -131,9 +131,9 @@ export class Pipeline {
   private accept(event: SegmentEvent): void {
     if (event.kind === 'partial' && !this.deps.settings().stt.partials) return
     if (event.kind === 'partial') {
-      this.dropPartials('superseded by newer partial')
+      this.dropQueuedPartials('superseded by newer partial')
     } else {
-      this.dropPartials('superseded by final segment')
+      this.dropQueuedPartials('superseded by final segment')
       const finals = this.queue.filter(job => job.kind === 'final')
       if (finals.length >= MAX_QUEUED_FINALS) {
         const index = this.queue.findIndex(job => job.kind === 'final')
@@ -148,10 +148,17 @@ export class Pipeline {
     this.pump()
   }
 
-  private dropPartials(reason: string): void {
+  /**
+   * Discard partials that have not started yet. The active partial is left
+   * alone: aborting it makes the local recognizer tear its worker down, so the
+   * next partial paid a cold start and was often superseded again before it
+   * produced text — the bottom line then stayed empty until the final arrived.
+   * Keeping one partial in flight makes partials appear at recognition speed;
+   * its result is replaced by the queued newer partial or by the final.
+   */
+  private dropQueuedPartials(reason: string): void {
     for (const job of this.queue) if (job.kind === 'partial') job.abort.abort(new Error(reason))
     this.queue = this.queue.filter(job => job.kind !== 'partial')
-    if (this.activeJob?.kind === 'partial') this.activeJob.abort.abort(new Error(reason))
   }
 
   private pump(): void {

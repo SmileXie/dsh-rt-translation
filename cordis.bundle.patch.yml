@@ -1,4 +1,8 @@
-# Bundle patch installed by `dsh plugin add`: the package name resolves inside the profile.
+# Bundle patch installed by `dsh plugin add` / the Desktop plugin page.
+# DSH reads this only after the package is installed into a profile, where the
+# bare name `dsh-rt-translation` resolves from that profile's node_modules.
+# Do NOT pass this file to `dsh web --patch`: use cordis.patch.yml for dev mode,
+# otherwise startup reports: Cannot find package 'dsh-rt-translation'.
 - insert:
     - id: speech-to-text
       name: '@deepseek-ai/dsh-experimental-speech-to-text'
@@ -13,4 +17,3 @@
       config:
         sourceLanguage: auto
         targetLanguage: zh
-        preset: meeting
