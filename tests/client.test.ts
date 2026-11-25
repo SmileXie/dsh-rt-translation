@@ -249,7 +249,8 @@ function treeText(node: unknown): string {
 test('连接后的页面渲染翻译背景卡，且 textarea 不携带 children（React 19 会抛错）', async () => {
   const tree = await renderConnectedPage()
   assert.match(treeText(tree), /翻译背景/)
-  assert.match(treeText(tree), /准备词汇/)
+  assert.match(treeText(tree), /提炼背景并生成词表/)
+  assert.equal(treeText(tree).includes('用当前翻译模型提炼背景并生成词表'), false, '按钮右侧的说明小字应已删除')
   const textareas = collectByType(tree, 'textarea')
   assert.ok(textareas.length > 0, '背景卡应包含 textarea')
   for (const textarea of textareas) {

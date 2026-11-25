@@ -352,7 +352,7 @@ window.__ModuleLoader__.load({
         )
         : h('div', { style: P.row },
           h('span', { style: S.label }, '背景摘要'),
-          h('span', { style: S.muted }, brief === '' ? '填背景后点准备词汇，或手写摘要' : `${brief.length} 字 · 会进 prompt`),
+          h('span', { style: S.muted }, brief === '' ? '填背景后点「提炼背景并生成词表」，或手写摘要' : `${brief.length} 字 · 会进 prompt`),
           h('button', { style: S.button, onClick: () => { setBriefOpen(true) } }, brief === '' ? '手写' : '改'),
         )
 
@@ -378,7 +378,7 @@ window.__ModuleLoader__.load({
             onBlur: blurGlossary,
           }),
         !glossaryCollapsed && glossary.length === 0
-          ? h('div', { style: P.hint }, '暂无术语，可手填，或先填背景再点「准备词汇」。')
+          ? h('div', { style: P.hint }, '暂无术语，可手填，或先填背景再点「提炼背景并生成词表」。')
           : null,
         h('div', { style: P.hint }, '最多 200 行、每行 120 字符，超出会即时截断；翻译时只注入本句出现的词条（≤12 条），空行与重复行会被忽略。'),
       )
@@ -425,8 +425,7 @@ window.__ModuleLoader__.load({
               style: S.button,
               disabled: bg.trim() === '' || preparing,
               onClick: () => { void prepare() },
-            }, preparing ? '准备中…' : '准备词汇'),
-            h('span', { style: P.hint }, '用当前翻译模型提炼背景并生成词表，生成后可修改'),
+            }, preparing ? '提炼中…' : '提炼背景并生成词表'),
           ),
           briefRow,
           glossarySection,

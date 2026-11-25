@@ -213,7 +213,7 @@ export class Translator {
       else if (chunk.type === 'finish') {
         const reason = (chunk as Finish).reason
         if (reason.kind === 'error') throw new Error(reason.failure?.message ?? 'glossary preparation failed')
-        if (reason.kind === 'aborted') throw new Error('准备词汇超时或已取消')
+        if (reason.kind === 'aborted') throw new Error('提炼背景超时或已取消')
       }
     }
     return parseModelPrep(raw)
