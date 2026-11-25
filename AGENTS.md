@@ -1,4 +1,4 @@
-﻿# AGENTS.md
+# AGENTS.md
 
 > 本文件写给在本仓库工作的 AI Agent 与开发者。先读这里，再读 [README](README.md) 和 [当前交接文档](docs/handoff-2026-11-24.md)。
 > 以代码与实际命令输出为准；历史设计文档里已被取代的行为（会议/影视模式、片名术语表、独立悬浮控制条、顶部/底部位置等）不要作为实现依据。
@@ -24,7 +24,7 @@
 | 命令 | 作用 | 备注 |
 | --- | --- | --- |
 | `npm install` | 安装插件自身依赖 | 链接安装不会自动装，缺了插件加载失败 |
-| `npm test` | 单元/集成测试（`node --test`，113 个） | 提交前必须通过 |
+| `npm test` | 单元/集成测试（`node --test`，115 个） | 提交前必须通过 |
 | `npm run test:overlay` | 行窗口 + 多屏位置自检（9 + 5 个断言，不弹窗） | 改 `overlay.ps1` 行选择/窗口定位后必跑 |
 | `npm run test:icon` | 托盘图标生成自检（`PASS tray icon 32x32`） | 改 `assets/icon.jpeg` / 图标代码后跑 |
 | `powershell ... overlay.ps1 -SelfTest` | 弹 1.5 秒字幕窗，验证 WPF 渲染 | 需要桌面会话 |
