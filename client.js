@@ -209,6 +209,15 @@ window.__ModuleLoader__.load({
       const [snap, setSnap] = useState(null)
       const [error, setError] = useState('')
       const alive = useRef(true)
+      // Background editors keep their own draft while focused so polling never
+      // overwrites what is being typed. null means "follow the snapshot".
+      const [bgDraft, setBgDraft] = useState(null)
+      const [briefDraft, setBriefDraft] = useState(null)
+      const [glossDraft, setGlossDraft] = useState(null)
+      const [briefOpen, setBriefOpen] = useState(false)
+      const [glossOpen, setGlossOpen] = useState(false)
+      const [preparing, setPreparing] = useState(false)
+      const [clearArmed, setClearArmed] = useState(false)
 
       const apply = useCallback(result => {
         if (result && result.ok && result.value) {
@@ -276,6 +285,92 @@ window.__ModuleLoader__.load({
       const phaseLabel = PHASE_LABEL[state.phase] || state.phase
       const dotColor = PHASE_COLOR[state.phase] || PHASE_COLOR.idle
 
+      const tr = snap.translate || {}
+      const bg = bgDraft ?? tr.background ?? ''
+      const brief = briefDraft ?? tr.backgroundBrief ?? ''
+      const glossary = glossDraft ?? (tr.glossary || [])
+      const glossText = glossary.join('\n')
+      const glossaryCollapsed = glossary.length > 8 && !glossOpen
+
+      const blurBackground = () => {
+        if (bgDraft !== null) { void act('setBackground', bgDraft); setBgDraft(null) }
+      }
+      const blurBrief = () => {
+        if (briefDraft !== null) { void act('setBrief', briefDraft); setBriefDraft(null) }
+      }
+      const blurGlossary = () => {
+        if (glossDraft !== null) { void act('setGlossary', glossDraft.split(/\r?\n/)); setGlossDraft(null) }
+      }
+      const prepare = async () => {
+        if (preparing || bg.trim() === '') return
+        setPreparing(true)
+        try {
+          if (bgDraft !== null) await act('setBackground', bgDraft)
+          await act('prepareGlossary')
+        } finally {
+          setPreparing(false)
+          setBgDraft(null)
+        }
+      }
+      const clearGlossary = () => {
+        if (!clearArmed) {
+          setClearArmed(true)
+          window.setTimeout(() => setClearArmed(false), 3000)
+          return
+        }
+        setClearArmed(false)
+        setGlossDraft(null)
+        void act('setGlossary', [])
+      }
+      const fieldStyle = { ...S.select, width: '100%', maxWidth: '100%', boxSizing: 'border-box', padding: '6px 8px', fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12, lineHeight: 1.5, resize: 'vertical', whiteSpace: 'pre' }
+
+      const briefRow = briefOpen
+        ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+          h('div', { style: P.row },
+            h('span', { style: S.label }, '背景摘要'),
+            h('span', { style: P.hint }, '会进每句 prompt'),
+            h('button', { style: S.smallButton, title: '收起', onClick: () => { blurBrief(); setBriefOpen(false) } }, '×'),
+          ),
+          h('textarea', {
+            rows: 3,
+            value: brief,
+            placeholder: '一两句话说清在听什么、谁是谁；留空则不注入',
+            style: fieldStyle,
+            onFocus: () => { if (briefDraft === null) setBriefDraft(tr.backgroundBrief || '') },
+            onChange: event => setBriefDraft(event.target.value),
+            onBlur: blurBrief,
+          }),
+        )
+        : h('div', { style: P.row },
+          h('span', { style: S.label }, '背景摘要'),
+          h('span', { style: S.muted }, brief === '' ? '填背景后点准备词汇，或手写摘要' : `${brief.length} 字 · 会进 prompt`),
+          h('button', { style: S.button, onClick: () => { setBriefOpen(true) } }, brief === '' ? '手写' : '改'),
+        )
+
+      const glossarySection = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+        h('div', { style: P.row },
+          h('span', { style: S.label }, '术语'),
+          h('span', { style: S.muted }, `${glossary.length} 条 · ${glossText.length} 字符`),
+          glossary.length > 8
+            ? h('button', { style: S.button, onClick: () => { if (glossOpen) blurGlossary(); setGlossOpen(!glossOpen) } }, glossOpen ? '收起' : '展开')
+            : null,
+          h('button', { style: S.button, onClick: clearGlossary }, clearArmed ? '确认清空？' : '清空术语'),
+        ),
+        glossaryCollapsed
+          ? h('div', { style: P.hint }, `已折叠 ${glossary.length} 条术语；翻译时只注入本句出现的词条。`)
+          : h('textarea', {
+            rows: 6,
+            value: glossText,
+            spellCheck: false,
+            placeholder: '每行一条「原文=译文」，例如 Hermione=赫敏',
+            style: { ...fieldStyle, maxHeight: 240, overflowY: 'auto' },
+            onFocus: () => { if (glossDraft === null) setGlossDraft(glossText) },
+            onChange: event => setGlossDraft(event.target.value),
+            onBlur: blurGlossary,
+          }),
+        h('div', { style: P.hint }, '翻译时只注入本句出现的词条（最多 12 条）；空行与重复行会被忽略。'),
+      )
+
       return h('div', { style: P.page },
         h('header', { style: P.head },
           h('div', { style: { minWidth: 0 } },
@@ -301,6 +396,28 @@ window.__ModuleLoader__.load({
             h('span', { style: S.label }, '目的'),
             select(TARGETS, state.target, value => { void act('setTarget', value) }),
           ),
+        ),
+        card('翻译背景',
+          h('textarea', {
+            rows: 2,
+            value: bg,
+            placeholder: '例：看《哈利·波特与魔法石》／讨论 AI 大模型方案',
+            style: fieldStyle,
+            onFocus: () => { if (bgDraft === null) setBgDraft(tr.background || '') },
+            onChange: event => setBgDraft(event.target.value),
+            onBlur: blurBackground,
+          }),
+          h('div', { style: P.row },
+            h('button', {
+              style: S.button,
+              disabled: bg.trim() === '' || preparing,
+              onClick: () => { void prepare() },
+            }, preparing ? '准备中…' : '准备词汇'),
+            h('span', { style: P.hint }, '用当前翻译模型提炼背景并生成词表，生成后可修改'),
+          ),
+          briefRow,
+          glossarySection,
+          tr.glossaryError ? h('div', { style: P.error }, tr.glossaryError) : null,
         ),
         card('分段',
           h('div', { style: P.row },
