@@ -28,7 +28,14 @@ export interface PanelSnapshot {
   segment: { silenceMs: number; maxSegmentMs: number }
   autoPauseAfterMs: number
   capture: ResolvedSettings['capture']
-  translate: { provider: string; model: string }
+  translate: {
+    provider: string
+    model: string
+    background: string
+    backgroundBrief: string
+    glossary: string[]
+    glossaryError: string | null
+  }
   stt: string
   persistence: boolean
 }
@@ -60,7 +67,14 @@ export function panelSnapshot(deps: PanelDeps): PanelSnapshot {
     segment: { silenceMs: settings.segment.silenceMs, maxSegmentMs: settings.segment.maxSegmentMs },
     autoPauseAfterMs: settings.autoPauseAfterMs,
     capture: { ...settings.capture },
-    translate: { provider: settings.translate.provider, model: settings.translate.model },
+    translate: {
+      provider: settings.translate.provider,
+      model: settings.translate.model,
+      background: settings.translate.background,
+      backgroundBrief: settings.translate.backgroundBrief,
+      glossary: [...settings.translate.glossary],
+      glossaryError: deps.controller.glossaryError(),
+    },
     stt: deps.sttStatus(),
     persistence: deps.persistence(),
   }

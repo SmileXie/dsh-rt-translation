@@ -232,6 +232,7 @@ export class Pipeline {
         target: settings.targetLanguage,
         context: this.context.slice(-settings.translate.contextTurns),
         glossary: [...settings.translate.glossary],
+        brief: settings.translate.backgroundBrief,
         signal: this.jobSignal(job, TRANSLATE_TIMEOUT_MS),
       })) {
         if (firstToken === 0) firstToken = this.deps.now() - transcribedAt

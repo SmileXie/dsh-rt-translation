@@ -22,7 +22,12 @@ function deps(over: Record<string, unknown> = {}) {
   const subs = new SubtitleModel({ maxCues: 3, bilingual: settings.subtitle.bilingual, holdMs: settings.subtitle.holdMs })
   const d = {
     stt: { calls: 0, maxOutstanding: 0, prepare() {}, async ensureReady() {}, async transcribe() { d.stt.calls++; return { text: (over.transcript as string) ?? '你好', audioSeconds: 1, inferenceSeconds: 0.1 } }, status: () => '' },
-    translator: { calls: 0, async *translate() { d.translator.calls++; yield 'Hello' }, async route() { return { provider: 'p', model: 'm' } } },
+    translator: {
+      calls: 0,
+      lastRequest: undefined as unknown,
+      async *translate(req: unknown) { d.translator.calls++; d.translator.lastRequest = req; yield 'Hello' },
+      async route() { return { provider: 'p', model: 'm' } },
+    },
     subtitles: subs,
     renderer: { last: undefined as unknown, start: async () => {}, cue(c: unknown) { d.renderer.last = c }, state() {}, style() {}, clear() {}, onAction() {}, dispose: async () => {} },
     settings: () => settings,
@@ -119,6 +124,13 @@ test('翻译连续失败 3 次触发 onFatal', async () => {
   for (let i = 0; i < 3; i++) await feedSegment(p)
 
   assert.equal(fatal, 1)
+})
+
+test('pipeline 把背景摘要传给翻译请求', async () => {
+  const d = deps({ settings: resolveConfig({ sourceLanguage: 'zh', targetLanguage: 'en', translate: { backgroundBrief: '魔法学校一年级' } }) })
+  const p = new Pipeline(d as never)
+  await feedSegment(p)
+  assert.equal((d.translator.lastRequest as { brief: string }).brief, '魔法学校一年级')
 })
 
 

@@ -36,6 +36,7 @@ function fakeController() {
     async resetDefaults() { calls.push(['resetDefaults', undefined]) },
     prepareModel() { calls.push(['prepareModel', undefined]) },
     async start() { calls.push(['start', undefined]) },
+    glossaryError: () => null,
   }
 }
 
@@ -74,6 +75,10 @@ test('GET state 返回面板快照；POST action 驱动控制器', async () => {
   assert.equal(stateBody.value.subtitle.maxLines, 3)
   assert.equal(stateBody.value.segment.silenceMs, 550)
   assert.equal(stateBody.value.autoPauseAfterMs, 120000)
+  assert.equal(stateBody.value.translate.background, '')
+  assert.equal(stateBody.value.translate.backgroundBrief, '')
+  assert.deepEqual(stateBody.value.translate.glossary, [])
+  assert.equal(stateBody.value.translate.glossaryError, null)
 
   const postRes = fakeRes()
   const payload = { action: 'setSubtitle', value: { fontSize: 44 } }
