@@ -257,6 +257,9 @@ test('连接后的页面渲染翻译背景卡，且 textarea 不携带 children�
   assert.ok(placeholders.some(value => value.includes('一两句话说清')), '背景摘要应直接显示为文本框')
   assert.ok(placeholders.some(value => value.includes('原文=译文')), '术语应有文本框')
   assert.equal(treeText(tree).includes('手写'), false, '摘要不再需要「手写」切换')
+  const pageText = treeText(tree)
+  assert.ok(pageText.indexOf('操作') > pageText.indexOf('语言'), '操作卡应在语言卡之后')
+  assert.ok(pageText.indexOf('操作') < pageText.indexOf('翻译背景'), '操作卡应在翻译背景之前')
   for (const textarea of textareas) {
     assert.equal((textarea.props as { children?: unknown }).children, undefined)
   }
