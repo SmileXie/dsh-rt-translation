@@ -260,6 +260,10 @@ test('连接后的页面渲染翻译背景卡，且 textarea 不携带 children�
   const pageText = treeText(tree)
   assert.ok(pageText.indexOf('操作') > pageText.indexOf('语言'), '操作卡应在语言卡之后')
   assert.ok(pageText.indexOf('操作') < pageText.indexOf('翻译背景'), '操作卡应在翻译背景之前')
+  assert.match(pageText, /状态/)
+  assert.match(pageText, /识别:/)
+  assert.ok(pageText.indexOf('识别:') > pageText.indexOf('操作'), '状态信息应排在操作卡之后')
+  assert.equal(hasPairedCards(tree, '操作', '状态'), true, '操作与状态应是同一行的两个卡片')
   for (const textarea of textareas) {
     assert.equal((textarea.props as { children?: unknown }).children, undefined)
   }
@@ -281,6 +285,24 @@ function rowsWithButton(tree: unknown, label: string): Array<{ props?: { childre
   }
   visit(tree)
   return rows
+}
+
+/** True when one div holds two direct children whose text contains both labels (side-by-side cards). */
+function hasPairedCards(tree: unknown, left: string, right: string): boolean {
+  let found = false
+  const visit = (node: unknown) => {
+    if (Array.isArray(node)) { for (const child of node) visit(child); return }
+    if (!node || typeof node !== 'object') return
+    const element = node as { type?: unknown; props?: { children?: unknown } }
+    const children = Array.isArray(element.props?.children) ? element.props.children : [element.props?.children]
+    const texts = children.map(child => treeText(child))
+    if (element.type === 'div' && texts.some(text => text.includes(left)) && texts.some(text => text.includes(right))) {
+      found = true
+    }
+    visit(element.props?.children)
+  }
+  visit(tree)
+  return found
 }
 
 test('提炼失败/前置条件的提示显示在按钮右侧，而不是卡片底部', async () => {
