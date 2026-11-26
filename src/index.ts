@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-subprocess'
 import type {} from '@deepseek-ai/dsh-settings'
 import type { Config as RtConfig, ResolvedSettings } from './config.ts'
 import { resolveConfig } from './config.ts'
+import { createSettingsStore, profileSettingsPath } from './settings-store.ts'
 import { SenseVoiceClient } from './stt.ts'
 import { Translator } from './translate.ts'
 import { SubtitleModel } from './subtitle/state.ts'
@@ -24,13 +25,14 @@ import { Pipeline } from './pipeline.ts'
 import { registerCommands } from './commands.ts'
 import { registerTool } from './tool.ts'
 import { dispatchAction } from './ui.ts'
-import { registerPanelRoutes, type PanelConnection, type PanelWebServer } from './panel.ts'
+import { registerPanelRoutes, type PanelWebServer } from './panel.ts'
 export { Config } from './config.ts'
 export const name = 'rt-translation'
 export const inject = ['speechToText', 'llm', 'commands', 'tools', 'subprocess']
 
 interface SettingsService { update(namespace: string, patch: object): Promise<void> }
 interface AgentDefaultModel { currentSelection(): { provider: string; model: string } }
+interface ProfileContextService { dir?: string }
 
 /** Temporary bridge diagnostics: the Desktop Host does not expose ctx.logger output. */
 function debugBridge(message: string): void {
@@ -46,20 +48,55 @@ export function apply(ctx: Context, config: Volatile<RtConfig>): void {
     else ctx.logger.warn(`[rt-translation] ${message}${suffix}`)
   }
 
-  let settings: ResolvedSettings = resolveConfig(config.get() as RtConfig)
+  const baseConfig = config.get() as RtConfig
+  const profile = ctx.get('profileContext') as ProfileContextService | undefined
+  // `dsh web --patch` runs cannot write the profile entry: the command-line
+  // overlay outranks the profile patch. Keep a profile-local fallback so panel
+  // choices still survive a restart, and let a successful profile write clear it.
+  const store = typeof profile?.dir === 'string' && profile.dir !== ''
+    ? createSettingsStore(profileSettingsPath(profile.dir))
+    : undefined
+  const restored = store?.load(baseConfig)
+  let restoredFromStore = restored !== undefined
+  let fallbackDirty = false
+  let profileWriteNoted = false
+  let settings: ResolvedSettings = restored === undefined ? resolveConfig(baseConfig) : resolveConfig(restored)
   const entryId = ctx.fiber.entry?.options.id
-  const settingsService = ctx.get('settings') as SettingsService | undefined
-  let persisted = entryId !== undefined && settingsService !== undefined
+  const settingsService = (): SettingsService | undefined => ctx.get('settings') as SettingsService | undefined
+  debugBridge(`profile=${profile?.dir ?? 'none'} store=${store === undefined ? 'none' : 'ok'} restored=${restored !== undefined} settings=${settingsService() === undefined ? 'late' : 'ok'}`)
 
   const patchSettings = async (patch: Partial<ResolvedSettings>): Promise<void> => {
     settings = { ...settings, ...patch }
-    if (entryId === undefined || settingsService === undefined) { persisted = false; return }
+    // The Settings service can bind after this plugin; resolve it on every write.
+    const service = settingsService()
+    if (entryId !== undefined && service !== undefined) {
+      try {
+        // Migrate fallback values with the first profile write; afterwards the
+        // normal patch keeps profile writes as small as before.
+        await service.update(entryId, (restoredFromStore || fallbackDirty ? settings : patch) as unknown as object)
+        restoredFromStore = false
+        fallbackDirty = false
+        profileWriteNoted = false
+        store?.clear()
+        return
+      } catch (error) {
+        if (!profileWriteNoted) {
+          profileWriteNoted = true
+          debugBridge(`settings update failed: ${error instanceof Error ? error.message : String(error)}`)
+          log('settings update failed', error)
+        }
+      }
+    }
+    if (store === undefined) {
+      log('settings are not persisted: no profile store')
+      return
+    }
     try {
-      await settingsService.update(entryId, patch as object)
-      persisted = true
+      store.save(baseConfig, settings)
+      fallbackDirty = true
     } catch (error) {
-      persisted = false
-      log('settings update failed', error)
+      debugBridge(`settings fallback write failed: ${error instanceof Error ? error.message : String(error)}`)
+      log('settings fallback write failed', error)
     }
   }
 
@@ -117,7 +154,6 @@ export function apply(ctx: Context, config: Volatile<RtConfig>): void {
     capture: loopbackCapture,
     makePipeline: deps => new Pipeline(deps),
     log,
-    persistence: () => persisted,
   })
 
   handleOverlayFatal = error => {
@@ -140,7 +176,6 @@ export function apply(ctx: Context, config: Volatile<RtConfig>): void {
     controller,
     settings: () => settings,
     sttStatus: () => stt.status(),
-    persistence: () => persisted,
     log,
   }
   const services = ctx as unknown as {
@@ -150,11 +185,6 @@ export function apply(ctx: Context, config: Volatile<RtConfig>): void {
   }
   debugBridge(`apply pid=${process.pid}`)
   let panelRegistered = false
-  const getConnection = (): PanelConnection | undefined => {
-    const connection = services.get('connection') as PanelConnection | undefined
-    if (connection !== undefined) debugBridge('connection service ok')
-    return connection
-  }
   const registerPanel = (): void => {
     if (panelRegistered) return
     const webServer = services.get('webServer') as PanelWebServer | undefined
@@ -163,7 +193,7 @@ export function apply(ctx: Context, config: Volatile<RtConfig>): void {
     panelRegistered = true
     try {
       services.effect(
-        () => registerPanelRoutes(webServer, getConnection, panelDeps),
+        () => registerPanelRoutes(webServer, panelDeps),
         'rt-translation: control panel routes',
       )
       debugBridge('routes registered: state + action')
@@ -178,7 +208,7 @@ export function apply(ctx: Context, config: Volatile<RtConfig>): void {
   try {
     services.on('internal/service', name => {
       debugBridge(`internal/service ${name}`)
-      if (name === 'webServer' || name === 'connection') registerPanel()
+      if (name === 'webServer') registerPanel()
     })
   } catch (error) {
     debugBridge(`service watch failed: ${String(error)}`)

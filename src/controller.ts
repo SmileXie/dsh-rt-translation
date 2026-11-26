@@ -24,8 +24,6 @@ export interface ControllerDeps {
   capture: AudioSourceFactory
   makePipeline: (deps: PipelineDeps) => Pipeline
   log: (msg: string, err?: unknown) => void
-  /** Whether runtime setting changes reach the profile; false shows a status warning. */
-  persistence?: () => boolean
   /** Retry delays for capture failures; tests can shorten them. */
   retryDelays?: number[]
 }
@@ -286,7 +284,6 @@ export class Controller {
       `切分: 静音 ${settings.segment.silenceMs}ms / 最长 ${settings.segment.maxSegmentMs}ms / 自动暂停 ${autoPause}`,
       `识别: ${this.deps.stt.status()}`,
       `翻译: ${settings.translate.provider || '跟随默认'} / ${settings.translate.model || '自动'}`,
-      ...this.deps.persistence?.() === false ? ['持久化: 未写入 profile（仅内存）'] : [],
       `延迟: P50 ${Math.round(stats.p50)}ms / P90 ${Math.round(stats.p90)}ms (${stats.count})`,
       ...stats.breakdown === undefined ? [] : [`分段: 队列 ${Math.round(stats.breakdown.queueWait)}ms / 识别 ${Math.round(stats.breakdown.stt)}ms / 首字 ${Math.round(stats.breakdown.firstToken)}ms`],
       `错误: ${this.error ?? '无'}`,

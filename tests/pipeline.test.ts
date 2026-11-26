@@ -29,7 +29,7 @@ function deps(over: Record<string, unknown> = {}) {
       async route() { return { provider: 'p', model: 'm' } },
     },
     subtitles: subs,
-    renderer: { last: undefined as unknown, start: async () => {}, cue(c: unknown) { d.renderer.last = c }, state() {}, style() {}, clear() {}, onAction() {}, dispose: async () => {} },
+    renderer: { last: undefined as unknown, cues: [] as unknown[], start: async () => {}, cue(c: unknown) { d.renderer.last = c; d.renderer.cues.push(c) }, state() {}, style() {}, clear() {}, onAction() {}, dispose: async () => {} },
     settings: () => settings,
     now: () => 0,
     log: () => {},
@@ -75,7 +75,38 @@ test('暂停后 feed 不产生任何调用', async () => {
   assert.equal(d.stt.calls, 0)
 })
 
-test('final 到达后丢弃仍在识别的 partial', async () => {
+test('新的 partial 不取消正在识别的 partial，逐词字幕不会等到整句才出现', async () => {
+  const d = deps()
+  const signals: AbortSignal[] = []
+  let release!: (value: { text: string; audioSeconds: number; inferenceSeconds: number }) => void
+  const gate = new Promise<{ text: string; audioSeconds: number; inferenceSeconds: number }>(resolve => { release = resolve })
+  ;(d.stt as { transcribe: unknown }).transcribe = async (_wav: Uint8Array, _lang: string, signal: AbortSignal) => {
+    signals.push(signal)
+    if (signals.length === 1) return gate
+    return { text: '后续文字', audioSeconds: 2, inferenceSeconds: 0.1 }
+  }
+  const p = new Pipeline(d as never)
+
+  // 1.4 s of speech starts the first partial; more speech emits a second one
+  // while the first is still being recognised.
+  for (let i = 0; i < 100; i++) p.feed(loudChunk())
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(signals.length, 1)
+  assert.equal(signals[0].aborted, false)
+
+  release({ text: '前半句', audioSeconds: 1, inferenceSeconds: 0.1 })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  const sources = d.renderer.cues.map(cue => (cue as { lines: Array<{ kind: string; text: string }> })
+    .lines.find(line => line.kind === 'source')?.text)
+  assert.ok(sources.includes('前半句'), '正在识别的 partial 完成后应立即上屏')
+
+  for (let i = 0; i < 30; i++) p.feed(silence())
+  await p.flush()
+  const final = d.renderer.last as { lines: Array<{ text: string }> }
+  assert.equal(final.lines.some(line => line.text === 'Hello'), true)
+})
+
+test('final 等正在识别的 partial 完成后再覆盖它的文本', async () => {
   const d = deps()
   const signals: AbortSignal[] = []
   let release!: (value: { text: string; audioSeconds: number; inferenceSeconds: number }) => void
@@ -92,7 +123,7 @@ test('final 到达后丢弃仍在识别的 partial', async () => {
   assert.equal(signals.length, 1)
 
   for (let i = 0; i < 30; i++) p.feed(silence())
-  assert.equal(signals[0].aborted, true)
+  assert.equal(signals[0].aborted, false)
   release({ text: '临时文本', audioSeconds: 1, inferenceSeconds: 0.1 })
   await p.flush()
 

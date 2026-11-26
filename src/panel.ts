@@ -17,7 +17,6 @@ export interface PanelDeps {
   controller: Controller
   settings: () => ResolvedSettings
   sttStatus: () => string
-  persistence: () => boolean
   log: (message: string, error?: unknown) => void
 }
 
@@ -37,7 +36,6 @@ export interface PanelSnapshot {
     glossaryError: string | null
   }
   stt: string
-  persistence: boolean
 }
 
 export type PanelResult =
@@ -49,13 +47,10 @@ export interface PanelWebServer {
   register(route: {
     kind: 'exact'
     path: string
+    /** Authenticated admission is the Web server's default; state it so the route can never become public. */
+    auth?: 'required'
     handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
   }): () => void
-}
-
-/** Minimal Connection face: request rejection is the only gate needed for these routes. */
-export interface PanelConnection {
-  requestRejection(request: { headers: Record<string, string | string[] | undefined> }): 401 | 403 | undefined
 }
 
 /** Build one snapshot from the same settings the controller reads. */
@@ -76,7 +71,6 @@ export function panelSnapshot(deps: PanelDeps): PanelSnapshot {
       glossaryError: deps.controller.glossaryError(),
     },
     stt: deps.sttStatus(),
-    persistence: deps.persistence(),
   }
 }
 
@@ -111,44 +105,29 @@ function writeJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body))
 }
 
-/** Resolve the auth gate lazily: the Connection service may bind after this plugin. */
-function authorize(
-  res: ServerResponse,
-  connection: () => PanelConnection | undefined,
-): boolean {
-  const gate = connection()
-  if (gate === undefined) {
-    writeJson(res, 503, { error: 'authentication unavailable' })
-    return false
-  }
-  const rejection = gate.requestRejection({ headers: {} as Record<string, string | string[] | undefined> })
-  if (rejection !== undefined) {
-    writeJson(res, rejection, { error: rejection === 401 ? 'unauthorized' : 'forbidden' })
-    return false
-  }
-  return true
-}
-
 /**
  * Register the two exact routes the control panel uses. `webServer.register`
  * returns the disposer; call this inside `ctx.effect` so the routes vanish
- * with the plugin.
+ * with the plugin. Admission (Host/Origin fence + DSH session) is enforced by
+ * the Web server's `webserver/authorize` waterfall before either handler runs;
+ * do not add a second Connection check here (current DSH removed
+ * `connection.requestRejection`, and calling it made every authenticated
+ * request fail with 400).
  */
 export function registerPanelRoutes(
   webServer: PanelWebServer,
-  connection: () => PanelConnection | undefined,
   deps: PanelDeps,
 ): () => void {
   const stateRoute = webServer.register({
     kind: 'exact',
     path: PANEL_STATE_PATH,
+    auth: 'required',
     handler: (req, res) => {
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         res.writeHead(405, { allow: 'GET, HEAD', 'cache-control': 'no-store' })
         res.end()
         return
       }
-      if (!authorizeRequest(req, res, connection)) return
       const body = JSON.stringify({ ok: true, value: panelSnapshot(deps) })
       res.writeHead(200, JSON_HEADERS)
       res.end(req.method === 'HEAD' ? undefined : body)
@@ -158,13 +137,13 @@ export function registerPanelRoutes(
   const actionRoute = webServer.register({
     kind: 'exact',
     path: PANEL_ACTION_PATH,
+    auth: 'required',
     handler: async (req, res) => {
       if (req.method !== 'POST') {
         res.writeHead(405, { allow: 'POST', 'cache-control': 'no-store' })
         res.end()
         return
       }
-      if (!authorizeRequest(req, res, connection)) return
       const payload = await readJsonBody(req)
       if (payload === undefined) {
         writeJson(res, 400, { ok: false, error: { code: 'rt/bad-body', message: '请求体必须是 JSON 对象', details: {} } })
@@ -199,23 +178,4 @@ export function registerPanelRoutes(
     stateRoute()
     actionRoute()
   }
-}
-
-/** Check the shared Connection fence, passing the request's real headers. */
-function authorizeRequest(
-  req: IncomingMessage,
-  res: ServerResponse,
-  connection: () => PanelConnection | undefined,
-): boolean {
-  const gate = connection()
-  if (gate === undefined) {
-    writeJson(res, 503, { error: 'authentication unavailable' })
-    return false
-  }
-  const rejection = gate.requestRejection({ headers: req.headers })
-  if (rejection !== undefined) {
-    writeJson(res, rejection, { error: rejection === 401 ? 'unauthorized' : 'forbidden' })
-    return false
-  }
-  return true
 }

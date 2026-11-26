@@ -262,13 +262,6 @@ test('收听中 resetDefaults 会重连采集并保持收听状态', async () =>
   assert.equal(c.state().phase, 'listening')
 })
 
-test('设置无法持久化时 status 明确标注', () => {
-  const d = fake()
-  ;(d as { persistence?: () => boolean }).persistence = () => false
-  const c = new Controller(d as never)
-  assert.match(c.status(), /未写入 profile/)
-})
-
 function withPatch(d: ReturnType<typeof fake>) {
   d.patchSettings = (async (patch: Partial<typeof d.settingsValue>) => {
     d.settingsValue = { ...d.settingsValue, ...patch }

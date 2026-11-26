@@ -115,17 +115,16 @@ test('页面在拿到快照前显示标题与连接提示', () => {
 })
 
 /** Render the page far enough to reach the connected branch: hooks update, effects run, fetch resolves. */
-async function renderConnectedPage(afterMount?: (tree: unknown) => void, overrides: { translate?: Record<string, unknown> } = {}) {
+async function renderConnectedPage(afterMount?: (tree: unknown) => void, overrides: { translate?: Record<string, unknown>; state?: Record<string, unknown> } = {}) {
   const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
   const snapshot = {
-    state: { running: false, phase: 'idle', source: 'auto', target: 'zh', error: null },
+    state: { running: false, phase: 'idle', source: 'auto', target: 'zh', error: null, ...(overrides.state ?? {}) },
     subtitle: { fontSize: 20, maxLines: 3, widthPercent: 78, marginPercent: 8, opacity: 0.72, background: true, bilingual: true, fontFamily: '', holdMs: 6000, minReadMs: 1800 },
     segment: { silenceMs: 550, maxSegmentMs: 8000 },
     autoPauseAfterMs: 120000,
     capture: { mode: 'system-exclude-self', appName: '' },
     translate: { provider: '', model: '', background: '', backgroundBrief: '', glossary: [], glossaryError: null, ...(overrides.translate ?? {}) },
     stt: '待机',
-    persistence: true,
   }
 
   let loaded: { factory: (require: (name: string) => unknown) => unknown } | undefined
@@ -245,6 +244,15 @@ function treeText(node: unknown): string {
   }
   return ''
 }
+
+test('运行中的开始按钮使用 DSH primary 按钮令牌，深色主题下文字不会消失', async () => {
+  const tree = await renderConnectedPage(undefined, { state: { running: true, phase: 'listening' } })
+  const stop = collectByType(tree, 'button').find(button => treeText(button).includes('停止'))
+  assert.ok(stop !== undefined, '应渲染停止按钮')
+  const style = stop.props.style as Record<string, string>
+  assert.equal(style.background, 'var(--dsw-alias-button-primary-fill)')
+  assert.equal(style.color, 'var(--dsw-alias-label-primary-foreground)')
+})
 
 test('连接后的页面渲染翻译背景卡，且 textarea 不携带 children（React 19 会抛错）', async () => {
   const tree = await renderConnectedPage()

@@ -67,8 +67,10 @@ window.__ModuleLoader__.load({
         cursor: 'pointer',
       },
       primaryButton: {
-        background: 'var(--dsw-alias-brand-primary)',
-        color: 'var(--dsw-alias-label-on-color)',
+        // 深色主题下 brand-primary 是近白色，label-on-color 也是白色，会让文字消失；
+        // 用 DSH 官方 primary 按钮的 fill/foreground 令牌，两套主题都有正确对比度。
+        background: 'var(--dsw-alias-button-primary-fill)',
+        color: 'var(--dsw-alias-label-primary-foreground)',
         border: '1px solid transparent',
         borderRadius: 6,
         padding: '4px 14px',
@@ -422,7 +424,6 @@ window.__ModuleLoader__.load({
           panel('状态', { flex: '1 1 300px', minWidth: 0 },
             h('div', { style: P.footer }, `识别: ${snap.stt}`),
             h('div', { style: P.footer }, `翻译: ${snap.translate.provider || '跟随默认'} / ${snap.translate.model || '自动'}`),
-            snap.persistence ? null : h('div', { style: P.footer }, '设置未写入 profile（仅内存）'),
             state.error || error ? h('div', { style: P.error }, state.error || error) : null,
           ),
         ),
