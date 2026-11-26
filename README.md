@@ -1,6 +1,6 @@
 # dsh-rt-translation
 
-DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播放的声音，用本机识别中/英/日/韩/粤，再用 DSH 已配置的 LLM 流式翻译，最后把字幕打印在透明窗口里。
+DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播放的声音，用本机识别中/英/日/韩/粤，再用 DSH 已配置的 LLM 流式翻译，把字幕打印在透明窗口里。
 
 ## 能做什么
 
@@ -8,11 +8,7 @@ DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播
 - 翻译背景：填一段作品/话题背景，一次提炼出「背景摘要」和「术语表」；摘要每句注入，术语只注入本句命中的条目（≤12 条）。
 - 字幕支持 2–5 行滚动历史：最后一行为当前正在说的话，上方几行为最近几句话，每行都带原文与译文。说话过程中最后一行的原文会随部分识别结果增量刷新；整句识别完成后再流式翻译，用大字译文替换/补充这一行。
 - 字幕窗在收听时持续显示：静音时保留最近几行历史，不会自动消失；停止翻译后关闭。
-- 单一配置（默认取原会议参数）：静音切分、单句最长、自动暂停，以及行数、双语、阅读时间都可在左侧「实时翻译」页调整；所有设置自动保存，重启 DSH 后保留（`dsh web --patch` 开发模式也一样）。
-- 左侧「实时翻译」页、托盘左键、全局热键、斜杠命令、模型工具五种入口共用同一个控制器；托盘右键只有「退出」。
-- 字幕对屏幕共享**可见**（刻意不启用 `WDA_EXCLUDEFROMCAPTURE`），共享整个桌面或录屏时会出现在画面里。
-- 字幕窗置顶、可用鼠标拖动，右键字幕窗可直接「停止翻译并关闭字幕」；控制页是 DSH 页面的一部分，不额外占用桌面窗口、不覆盖对话。
-- overlay 进程常驻，`/rt stop` 只停止采集并隐藏字幕，热键、托盘和左侧控制页随时能再次开始。
+- 配置：静音切分、单句最长、自动暂停，以及行数、双语、阅读时间都可在左侧「实时翻译」页调整；所有设置自动保存。
 
 ## 依赖
 
@@ -32,13 +28,11 @@ DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播
 ### 准备工作
 
 - Windows 11，或 Windows 10 build 20348 以上。
-- 已安装 DeepSeek Harness Desktop（推荐），或已安装带 `dsh` 命令的 DSH CLI／源码仓库。没有全局 `dsh` 时，可以在 DSH 仓库里使用 `pnpm dsh`。
+- 已安装 DeepSeek Harness Desktop（推荐）；用开发模式从源码加载时，还需要带 `dsh` 命令的 DSH CLI 或源码仓库，没有全局 `dsh` 时可以在 DSH 仓库里使用 `pnpm dsh`。
 - DSH 中有可用的 LLM provider 与 model，供翻译调用。
 - 第一次使用前需要约 240 MB 的 SenseVoice 模型，安装后可在左侧「实时翻译」页点「准备模型」提前下载。
 
 ### 方式一：在 DeepSeek Harness Desktop 中安装（推荐桌面用户）
-
-Desktop 的「插件」页会直接管理 Desktop 自己的 `desktop` profile，安装后不需要再运行 `dsh --profile rt`，也不需要另外启动 Web 版。以下步骤以 Windows 为例。
 
 1. 获取项目，并记下仓库根目录的绝对路径，安装插件自身的依赖。
 
@@ -54,64 +48,11 @@ npm install
 
 安装完成后点击「立即启用」。如果页面提示需要重启，请完全退出 DeepSeek Harness（不只是关闭窗口）后再重新打开，让插件由 Desktop profile 重新加载。
 
-4. 回到「插件」页确认已出现「实时翻译 (dsh-rt-translation)」及下方说明文字；说明文案来自仓库的 `locale/zh.json`。
+4. 回到「插件」页确认已出现「实时翻译 (dsh-rt-translation)」。
 
-Desktop 安装会沿用当前 Desktop profile 已配置的 LLM。若翻译路由仍未准备好，请先在 Desktop 的模型设置中配置一个可用模型。
+插件安装会沿用当前 DSH Desktop profile 已配置的 LLM。若翻译路由仍未准备好，请先在 DSH Desktop 的模型设置中配置一个可用模型。
 
-### 方式二：通过 CLI 作为 bundle 安装
-
-把插件装进独立的 `rt` profile，之后用 `dsh --profile rt` 启动，不影响默认 profile。
-
-1. 获取项目，并记下仓库根目录的绝对路径，安装插件自身的依赖。
-
-```powershell
-git clone https://github.com/SmileXie/dsh-rt-translation.git
-cd dsh-rt-translation
-npm install
-```
-
-3. 创建 `rt` profile。`--dump-config` 只生成并打印配置，不启动 DSH。
-
-```powershell
-dsh --profile rt --from-default-profile web --dump-config
-```
-
-4. 把当前目录安装为该 profile 的插件。
-
-```powershell
-dsh plugin --profile rt add .
-```
-
-5. 确认 `speech-to-text`、`speech-to-text-sensevoice`、`rt-translation` 三个条目都已挂载。
-
-```powershell
-dsh --profile rt --dump-config
-```
-
-如果终端提示找不到 `dsh`，在 DSH 仓库根目录把命令里的 `dsh` 换成 `pnpm dsh`，例如 `pnpm dsh --profile rt --dump-config`。同一个目录下也可以改用仓库自带的 Node 运行时，把 `dsh` 换成 `node apps\cli\lib\bin.js`。
-
-#### 配置翻译模型
-
-新 profile 不会自动继承默认 profile 的模型配置。如果启动后模型选择器显示「暂无可用模型」，或 `/rt status` 的「翻译」为空，把默认 profile 的 provider 条目复制到 `$env:DSH_HOME\profiles\rt\cordis.patch.yml`。没有设置 `DSH_HOME` 时，该文件位于 `$env:USERPROFILE\.dsh\profiles\rt\cordis.patch.yml`。
-
-```yaml
-- id: llm-pi-ai
-  name: "@deepseek-ai/dsh-llm-pi-ai"
-  config:
-    providers:
-      qwen-token-plan-cn:
-        apiKeyEnv: QWEN_TOKEN_PLAN_CN_API_KEY
-- id: agent-default-model
-  name: "@deepseek-ai/dsh-agent-default-model"
-  config:
-    provider: qwen-token-plan-cn
-    model: deepseek-v4.1-flash
-    reasoningEffort: high
-```
-
-provider 名称、模型名和密钥环境变量按你自己的 DSH 配置替换。
-
-### 方式三：开发模式（从源码加载）
+### 方式二：开发模式（从源码加载）
 
 修改插件代码时可以直接加载本仓库，不必安装到 profile。同样需要先在仓库根目录执行一次 `npm install`，否则入口加载时会因为找不到 `@deepseek-ai/schemastery` 而失败，`/rt` 也不会出现。然后在项目根目录执行以下命令。
 
@@ -130,7 +71,6 @@ pnpm dsh web --patch <插件目录的绝对路径>\cordis.patch.yml
 安装完成后先启动一次 DSH：
 
 - Desktop 安装：从托盘完全退出后重新打开 DeepSeek Harness Desktop。
-- CLI bundle 安装：运行 `dsh --profile rt`，再打开 DSH 页面。
 - 开发模式：在仓库根目录运行 `dsh web --patch .\cordis.patch.yml`，再打开页面。
 
 打开左侧导航「实时翻译」，在「操作」卡片点「准备模型」：
@@ -153,7 +93,6 @@ pnpm dsh web --patch <插件目录的绝对路径>\cordis.patch.yml
 
 默认显示 3 行（可 2–5）：最下面一行是当前正在说的话（先出原文，译文流式补上），上面几行是最近几句历史，历史行整体更暗（约 70% 不透明度；双语时的小字原文还会再淡一些）。新译文出现后至少保留「阅读」设定的时间（默认 1.8 秒）才允许滚出，必要时会临时多显示一行（最多比设定行数多 1 行）。默认显示「小字原文 + 大字译文」。字幕窗可以用鼠标直接拖动到你习惯的位置（多显示器下拖到哪个屏幕就留在哪个屏幕）；停止说话后历史行会保留，停止翻译（⏸ / `/rt stop`）时字幕窗关闭。
 
-> **建议先做**：按 [翻译背景与术语](#翻译背景与术语) 填一段背景并点「提炼背景并生成词表」。人名、作品名和术语会稳定很多；不提炼也能正常翻译。
 
 ### 日常操作
 
@@ -205,21 +144,11 @@ pnpm dsh web --patch <插件目录的绝对路径>\cordis.patch.yml
 
 提炼时会把背景原文发送给当前翻译模型一次；之后逐句请求带的是摘要、命中的术语（≤12 条）以及当前句和最近上下文，不会重复发送整段背景，所以术语表可以写得长一些。
 
-### 适合先用起来的场景
-
-- 影视、动漫、游戏解说：人名、地名、作品名和招式名前后一致。
-- 技术分享、课程、发布会：缩写、产品名、标准名按行业惯用译法输出。
-- 会议、访谈：提前写清参会人、公司和项目代号，减少指代错误。
-
-提炼失败时，按钮旁会显示原因（例如源语言为「自动」、没有可用的翻译模型、超时或未生成内容）；按提示修正后再点一次即可。重新点击「提炼背景并生成词表」时，上一次的提示会立即收起（不用等这次提炼结束）；如果问题仍在，校验后会重新显示。
-
 ## 卸载
 
-```powershell
-dsh plugin --profile rt remove dsh-rt-translation
-```
+在 DeepSeek Harness Desktop 的「插件」页找到「实时翻译」，先停用再移除，然后完全退出 DSH（含托盘）并重新打开，让移除生效。
 
-如需同时删除模型缓存，删除 `$env:USERPROFILE\.dsh\speech-to-text\sensevoice`。运行期设置保存在 `rt` profile 的 `cordis.patch.yml`，默认是 `$env:USERPROFILE\.dsh\profiles\rt\cordis.patch.yml`。
+如需同时删除模型缓存，删除 `$env:USERPROFILE\.dsh\speech-to-text\sensevoice`。运行期设置（切分、字幕、翻译背景等）保存在 DSH profile 的 `cordis.patch.yml`，默认是 `$env:USERPROFILE\.dsh\profiles\desktop\cordis.patch.yml`；删掉其中的 `rt-translation` 条目即可。
 
 ## 分段与自动暂停
 
