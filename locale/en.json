@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Realtime translation (dsh-rt-translation)",
+    "description": "Live subtitles for the audio your PC is playing: Chinese, English, Japanese, Korean, and Cantonese, with on-device recognition and streaming LLM translation in a draggable always-on-top window. System audio only, no microphone; audio never leaves the machine, and only recognized text (plus any translation background you enter) is sent to your model. Open Realtime translation in the sidebar and press ▶ to start."
+  }
+}

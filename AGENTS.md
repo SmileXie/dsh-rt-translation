@@ -25,7 +25,7 @@
 | --- | --- | --- |
 | `npm install` | 安装插件自身依赖 | 链接安装不会自动装，缺了插件加载失败 |
 | `dsh web --patch .\cordis.patch.yml` | 开发模式从本仓库加载 | 在 DSH 仓库用 `pnpm dsh ...`；必须用 `cordis.patch.yml`，不能传 bundle patch |
-| `npm test` | 单元/集成测试（`node --test`，122 个） | 提交前必须通过 |
+| `npm test` | 单元/集成测试（`node --test`，127 个） | 提交前必须通过 |
 | `npm run test:overlay` | 行窗口 + 多屏位置 + 右键菜单自检（9 + 5 + 1 个断言，不弹窗） | 改 `overlay.ps1` 行选择/窗口定位/菜单后必跑 |
 | `npm run test:icon` | 托盘图标生成自检（`PASS tray icon 32x32`） | 改 `assets/icon.jpeg` / 图标代码后跑 |
 | `powershell ... overlay.ps1 -SelfTest` | 弹 1.5 秒字幕窗，验证 WPF 渲染 | 需要桌面会话 |
@@ -77,6 +77,8 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 | `src/subtitle/windows-wpf.ts` | 子进程管理、重启、close/dispose |
 | `assets/overlay/overlay.ps1` | WPF 叠加窗、托盘、热键、协议处理、行窗口、多屏定位、右键菜单与自检 |
 | `client.js` | DSH 浏览器半：侧边栏入口、「实时翻译」页、fetch 轮询 |
+| `locale/en.json`、`locale/zh.json` | 插件页的标题与说明文字（`meta.title` / `meta.description`）；改文案只改这里 |
+| `package.json` | 包清单；`exports` 必须导出 `./package.json` 与 `./locale/*.json`，否则插件页读不到元数据 |
 | `assets/icon.jpeg` | 托盘图标源图（缩放到 32×32） |
 | `cordis.bundle.patch.yml` | 安装进 profile 后由 `dsh plugin add` / Desktop 插件页读取的 bundle patch；**不要**传给 `--patch` |
 | `cordis.patch.yml` | 开发模式 `dsh web --patch` 用；入口 `./src/index.ts` 按此文件所在目录锚定 |
@@ -112,7 +114,7 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 
 - 字幕窗显示最近 `maxLines` 句：最后一行是当前句，上方是历史；历史行透明度 0.7。
 - 翻译 prompt 依次是 `[Background]`（摘要）、`[Glossary]`（本句命中的词条）、`[Recent context]`、`[Current]`；任一为空时整段省略。词条按大小写不敏感子串匹配本句原文，最多 12 条，所以词表可以很长而不拖慢每句请求。
-- 「提炼背景并生成词表」要求先选定源语言：`sourceLanguage: auto` 时控制器直接拒绝（不调用模型），面板显示「请先选择源语言」；背景为空时同样不调用模型。
+- 「提炼背景并生成词表」要求先选定源语言：`sourceLanguage: auto` 时控制器直接拒绝（不调用模型），面板显示「请先选择源语言」；背景为空时同样不调用模型，按钮仍可点击并在按钮右侧立即提示先填背景。重新点击时面板会先收起上一次的 `glossaryError`（不等待模型返回），问题仍在（例如源语言仍是 `auto`）再由本次校验结果重新显示。
 - 静音时保留历史，不自动关闭；**停止翻译**（⏸ / `/rt stop` / dispose）会清空并关闭字幕窗；`/rt restart` 不清屏。
 - 新译文出现后至少保留 `minReadMs` 才允许滚出，必要时短暂多显示一行（`maxLines + 1`）。
 - 字幕窗可鼠标拖动；拖动位置只在当前会话保持，初始位置底部居中。拖到任意显示器后都留在该屏幕，不会被主屏工作区钳回。没有顶部/底部配置。
@@ -181,6 +183,14 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 - 参考实现（随发行版一起装）：`dsh-client-ui-plugin-manager/src/client/index.ts` 的 `main` + `sidebar.panellist` 注册，以及 `PluginsPanelIcon.tsx` 的图标写法。
 - 不要 `require('@deepseek-ai/dsh-client-ui-primitives')` 或其它 Harness Client 包；控件自己写，样式只引用 `--dsw-alias-*`。
 - 主题色用 `--dsw-alias-*` 变量（如 `--dsw-alias-bg-layer-1`、`--dsw-alias-label-primary`）；页面留白与排版参考同类的管理页（标题 20px、卡片 12px 圆角、`maxWidth` 880）。
+
+### 插件页标题与说明（locale 元数据）
+
+- 插件页行内的标题/说明来自 `locale/*.json` 的 `meta.title` / `meta.description`，不是 `client.js` 的侧栏标签。
+- DSH 通过包 `exports` 读取 `<包名>/locale/en.json` 与 `<包名>/package.json`；缺任一导出时元数据为空，行内只剩名字（`packageText` 对 description 没有兜底）。所以 `./package.json` 和 `./locale/*.json` 必须保留在 `exports`，`locale` 必须留在 `files` 里。
+- 改中文文案改 `locale/zh.json`，英文改 `locale/en.json`（`en.json` 还负责让 DSH 发现 locale 目录，不能删）；`package.json` 的 `description` 是英文兜底。
+- 首次新增/修改 `exports` 后要完全退出 DSH（含托盘）再打开一次：Node 会缓存 `package.json` 的 exports，运行中的进程读不到新子路径。之后只改 `locale/*.json` 文案时刷新插件页（`Ctrl+R`）即可。link 安装不需要重装。
+- 图标可选，提供时导出 `./icon`，否则用默认图标。
 
 ### 分段器（src/audio/vad.ts）
 

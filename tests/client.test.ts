@@ -115,7 +115,10 @@ test('页面在拿到快照前显示标题与连接提示', () => {
 })
 
 /** Render the page far enough to reach the connected branch: hooks update, effects run, fetch resolves. */
-async function renderConnectedPage(afterMount?: (tree: unknown) => void, overrides: { translate?: Record<string, unknown>; state?: Record<string, unknown> } = {}) {
+async function renderConnectedPage(
+  afterMount?: (tree: unknown, api: { render: () => void; current: () => unknown; pump: () => Promise<void> }) => void | Promise<void>,
+  overrides: { translate?: Record<string, unknown>; state?: Record<string, unknown>; actionTranslate?: Record<string, unknown> } = {},
+) {
   const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
   const snapshot = {
     state: { running: false, phase: 'idle', source: 'auto', target: 'zh', error: null, ...(overrides.state ?? {}) },
@@ -126,6 +129,11 @@ async function renderConnectedPage(afterMount?: (tree: unknown) => void, overrid
     translate: { provider: '', model: '', background: '', backgroundBrief: '', glossary: [], glossaryError: null, ...(overrides.translate ?? {}) },
     stt: '待机',
   }
+  // A POST may report the state after an action (for example a successful
+  // preparation that clears glossaryError).
+  const actionSnapshot = overrides.actionTranslate === undefined
+    ? snapshot
+    : { ...snapshot, translate: { ...snapshot.translate, ...overrides.actionTranslate } }
 
   let loaded: { factory: (require: (name: string) => unknown) => unknown } | undefined
   const window = {
@@ -175,7 +183,11 @@ async function renderConnectedPage(afterMount?: (tree: unknown) => void, overrid
   }
 
   const realFetch = globalThis.fetch
-  globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({ ok: true, value: snapshot }) })) as never
+  globalThis.fetch = (async (_url: string, init?: { method?: string }) => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ ok: true, value: init?.method === 'POST' ? actionSnapshot : snapshot }),
+  })) as never
   const plugin = (loaded as { factory: (require: (name: string) => unknown) => unknown }).factory(name => {
     if (name === 'react') return react
     throw new Error(`unexpected module: ${name}`)
@@ -214,7 +226,7 @@ async function renderConnectedPage(afterMount?: (tree: unknown) => void, overrid
   try {
     await pump()
     if (afterMount !== undefined) {
-      afterMount(tree)
+      await afterMount(tree, { render, current: () => tree, pump })
       await pump()
     }
   } finally {
@@ -232,6 +244,13 @@ function collectByType(node: unknown, type: string, out: Array<{ type: string; p
     if (element.props !== undefined) collectByType(element.props.children, type, out)
   }
   return out
+}
+
+/** The "提炼背景并生成词表" button; after a click its label becomes "提炼中…". */
+function prepareButton(tree: unknown) {
+  const button = collectByType(tree, 'button').find(entry => treeText(entry).includes('提炼背景并生成词表'))
+  assert.ok(button !== undefined, '应渲染提炼按钮')
+  return button
 }
 
 /** Text of a tree whose children live in props (the shape createElement produces). */
@@ -348,6 +367,66 @@ test('提炼失败/前置条件的提示显示在按钮右侧，而不是卡片�
   assert.ok(rows.length > 0, '应找到含提炼按钮的行')
   assert.ok(rows.some(row => treeText(row).includes(message)), '提示应与按钮在同一行')
   assert.equal((treeText(tree).match(/请先在「语言」里选择源语言/g) ?? []).length, 1, '提示只应出现一次')
+})
+
+test('背景为空时点击提炼按钮仍可点击，并立即提示先填背景；输入后提示消失', async () => {
+  let afterClick = ''
+  const tree = await renderConnectedPage(async (first, api) => {
+    const button = prepareButton(first)
+    assert.notEqual(button.props.disabled, true, '背景为空时按钮也应可点击')
+
+    ;(button.props.onClick as () => void)()
+    api.render()
+    afterClick = treeText(api.current())
+    assert.match(afterClick, /先填写翻译背景/, '点击后应立即提示先填背景')
+
+    const background = collectByType(api.current(), 'textarea')
+      .find(area => String(area.props.placeholder).includes('例：看'))
+    assert.ok(background !== undefined, '应找到背景输入框')
+    ;(background.props.onChange as (event: unknown) => void)({ target: { value: '看《哈利·波特与魔法石》' } })
+    await api.pump()
+    assert.equal(treeText(api.current()).includes('先填写翻译背景'), false, '输入背景后提示应消失')
+  })
+  assert.match(afterClick, /先填写翻译背景/)
+  assert.equal(treeText(tree).includes('先填写翻译背景'), false)
+})
+
+test('再次点击提炼时旧提示立即消失；宿主仍报同一问题时重新显示', async () => {
+  const message = '请先在「语言」里选择源语言——「自动」时无法提炼背景与词表'
+  let afterClick = ''
+  const tree = await renderConnectedPage(async (first, api) => {
+    ;(prepareButton(first).props.onClick as () => void)()
+    api.render()
+    afterClick = treeText(api.current())
+    assert.equal(afterClick.includes(message), false, '点击后不应等提炼完成，旧提示应立即消失')
+
+    // 源语言仍是「自动」：宿主快速返回同一错误，提示应重新出现。
+    await api.pump()
+    assert.ok(treeText(api.current()).includes(message), '问题未修复时应重新显示提示')
+  }, {
+    state: { source: 'auto' },
+    translate: { background: '看《哈利·波特与魔法石》', glossaryError: message },
+  })
+  assert.equal(afterClick.includes(message), false)
+  assert.ok(treeText(tree).includes(message))
+  assert.equal((treeText(tree).match(/请先在「语言」里选择源语言/g) ?? []).length, 1)
+})
+
+test('提炼成功后旧提示不会重新出现', async () => {
+  const message = '请先在「语言」里选择源语言——「自动」时无法提炼背景与词表'
+  const tree = await renderConnectedPage(async (first, api) => {
+    ;(prepareButton(first).props.onClick as () => void)()
+    api.render()
+    assert.equal(treeText(api.current()).includes(message), false, '点击后旧提示应立即消失')
+
+    await api.pump()
+    assert.equal(treeText(api.current()).includes(message), false, '成功后旧提示不应重新出现')
+  }, {
+    state: { source: 'zh' },
+    translate: { background: '电影', glossaryError: message },
+    actionTranslate: { glossaryError: null, backgroundBrief: '一部电影', glossary: ['A=B'] },
+  })
+  assert.equal(treeText(tree).includes(message), false)
 })
 
 test('聚焦各输入框后页面仍能渲染（草稿状态不能当数组用）', async () => {

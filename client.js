@@ -228,6 +228,11 @@ window.__ModuleLoader__.load({
       const [glossDraft, setGlossDraft] = useState(null)
       const [glossOpen, setGlossOpen] = useState(false)
       const [preparing, setPreparing] = useState(false)
+      // Local preparation feedback plus the host outcome the user has already
+      // dismissed by retrying. Both live here so a click can clear the previous
+      // message before the (possibly slow) model call returns.
+      const [prepareHint, setPrepareHint] = useState('')
+      const [suppressedError, setSuppressedError] = useState('')
       const [clearArmed, setClearArmed] = useState(false)
 
       const apply = useCallback(result => {
@@ -316,7 +321,15 @@ window.__ModuleLoader__.load({
         if (glossDraft !== null) { void act('setGlossary', glossDraft.split(/\r?\n/)); setGlossDraft(null) }
       }
       const prepare = async () => {
-        if (preparing || bg.trim() === '') return
+        if (preparing) return
+        // Any earlier outcome is stale the moment the user retries: hide it now
+        // instead of leaving it on screen until the model call finishes.
+        setSuppressedError(tr.glossaryError ?? '')
+        setPrepareHint('')
+        if (bg.trim() === '') {
+          setPrepareHint('先填写翻译背景，再点「提炼背景并生成词表」')
+          return
+        }
         setPreparing(true)
         try {
           if (bgDraft !== null) await act('setBackground', bgDraft)
@@ -324,8 +337,14 @@ window.__ModuleLoader__.load({
         } finally {
           setPreparing(false)
           setBgDraft(null)
+          // Show whatever the host reports from this attempt, even if the text
+          // is unchanged (for example the source language is still "auto").
+          setSuppressedError('')
         }
       }
+      const prepareMessage = prepareHint !== ''
+        ? prepareHint
+        : (tr.glossaryError && tr.glossaryError !== suppressedError ? tr.glossaryError : '')
       const clearGlossary = () => {
         if (!clearArmed) {
           setClearArmed(true)
@@ -435,16 +454,20 @@ window.__ModuleLoader__.load({
             placeholder: '例：看《哈利·波特与魔法石》／讨论 AI 大模型方案',
             style: fieldStyle,
             onFocus: () => { if (bgDraft === null) setBgDraft(tr.background || '') },
-            onChange: event => setBgDraft(event.target.value),
+            onChange: event => {
+              const value = event.target.value
+              setBgDraft(value)
+              if (value.trim() !== '') setPrepareHint('')
+            },
             onBlur: blurBackground,
           }),
           h('div', { style: P.row },
             h('button', {
               style: S.button,
-              disabled: bg.trim() === '' || preparing,
+              disabled: preparing,
               onClick: () => { void prepare() },
             }, preparing ? '提炼中…' : '提炼背景并生成词表'),
-            tr.glossaryError ? h('span', { style: P.error }, tr.glossaryError) : null,
+            prepareMessage !== '' ? h('span', { style: P.error }, prepareMessage) : null,
           ),
           briefRow,
           glossarySection,

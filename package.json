@@ -2,14 +2,16 @@
   "name": "dsh-rt-translation",
   "version": "0.1.0",
   "private": true,
-  "description": "Realtime system-audio translation subtitles with an in-window control bar for DeepSeek Harness",
+  "description": "Realtime system-audio translation subtitles for DeepSeek Harness: on-device speech recognition, streaming LLM translation, and a draggable always-on-top subtitle window",
   "type": "module",
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./client": "./client.js"
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
-  "files": ["src", "client.js", "assets", "cordis.patch.yml", "cordis.bundle.patch.yml", "README.md"],
+  "files": ["src", "client.js", "assets", "locale", "cordis.patch.yml", "cordis.bundle.patch.yml", "README.md"],
   "dsh": {
     "bundle": { "patch": "./cordis.bundle.patch.yml" },
     "client": { "platform": "web", "immediately": true }
