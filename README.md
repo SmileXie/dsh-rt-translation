@@ -5,7 +5,8 @@ DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播
 ## 演示
 
 下面这段录屏展示了插件的工作过程：开始收听电脑正在播放的音频后，字幕窗在屏幕底部实时滚动显示原文与译文。
-https://github.com/user-attachments/assets/5fdf4f55-c820-4c82-a532-590e32ef40db
+<video src="https://github.com/user-attachments/assets/5fdf4f55-c820-4c82-a532-590e32ef40db" controls width="800"></video>
+
 
 ## 能做什么
 
