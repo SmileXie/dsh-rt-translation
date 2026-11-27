@@ -1,4 +1,4 @@
-﻿param([switch]$SelfTest, [switch]$SelfTestMeeting, [switch]$SelfTestRows, [switch]$SelfTestHold, [switch]$SelfTestPosition, [switch]$SelfTestIcon, [switch]$SelfTestMenu, [string]$ConfigBase64 = '')
+﻿param([switch]$SelfTest, [switch]$SelfTestMeeting, [switch]$SelfTestRows, [switch]$SelfTestHold, [switch]$SelfTestPosition, [switch]$SelfTestResize, [switch]$SelfTestIcon, [switch]$SelfTestMenu, [string]$ConfigBase64 = '')
 
 $ErrorActionPreference = 'Stop'
 
@@ -132,6 +132,24 @@ $script:userPositioned = $false
 $script:dragging = $false
 $script:manualLeft = $null
 $script:manualTop = $null
+$script:resizing = $false
+$script:resizeEdge = ''
+$script:resizeStart = $null
+$script:resizeStartScreen = $null
+$script:resizeHorizontal = $false
+$script:resizeVertical = $false
+$script:resizeRows = 0
+$script:userSizedWidth = $false
+$script:userSizedHeight = $false
+$script:manualWidth = $null
+$script:manualHeight = $null
+# The subtitle frame may be dragged narrower only down to this width; below it
+# Chinese/Latin lines wrap into unreadable columns.
+$script:minSubtitleWidth = 320
+# Edge/corner hit zone for resizing, in DIPs.
+$script:resizeBorder = 8
+# subBorder.Padding top + bottom.
+$script:subtitlePaddingY = 20
 $script:nowOverride = $null
 $script:selfTestStatus = 0
 $script:hotkeys = @{}
@@ -203,8 +221,44 @@ function Get-Now {
   return [DateTime]::UtcNow
 }
 
+function Set-HeightAuto {
+  $script:userSizedHeight = $false
+  $script:manualHeight = $null
+  if ($null -ne $script:subWindow) {
+    $script:subWindow.SizeToContent = [System.Windows.SizeToContent]::Height
+  }
+}
+
+# Font/bilingual changes rescale a manually sized frame; keep its height inside
+# the 2-5 row range instead of leaving content clipped below two rows.
+function Clamp-ManualHeight {
+  if (-not $script:userSizedHeight -or -not (Test-FiniteNumber $script:manualHeight)) { return }
+  # Preserve the row count the user chose; the frame grows/shrinks with the
+  # font/bilingual row height instead of silently showing fewer rows.
+  $rows = [int]$script:style.maxLines
+  if ($rows -lt 2) { $rows = 2 }
+  if ($rows -gt 5) { $rows = 5 }
+  $unit = Get-RowUnit ([double]$script:style.fontSize) ([bool]$script:style.bilingual)
+  $height = [double]$script:subtitlePaddingY + $unit * $rows
+  if ([math]::Abs($height - [double]$script:manualHeight) -lt 0.5) { return }
+  $script:manualHeight = $height
+  if ($null -ne $script:subWindow) {
+    $script:subWindow.SizeToContent = [System.Windows.SizeToContent]::Manual
+    $script:subWindow.Height = $height
+  }
+}
+function Sync-RowLimitFromHeight {
+  if (-not $script:userSizedHeight -or -not (Test-FiniteNumber $script:manualHeight)) { return }
+  $rows = Resolve-RowLimitFromHeight ([double]$script:manualHeight) ([double]$script:style.fontSize) ([bool]$script:style.bilingual) ([double]$script:subtitlePaddingY)
+  if ($rows -eq [int]$script:style.maxLines) { return }
+  $script:style.maxLines = $rows
+  if ($null -ne $script:subtitleTimer) { Queue-Subtitle @{ maxLines = $rows } }
+}
 function Apply-Style($incoming) {
   if ($null -eq $incoming) { return }
+  $previousFontSize = [double]$script:style.fontSize
+  $previousBilingual = [bool]$script:style.bilingual
+  $previousMaxLines = [int]$script:style.maxLines
   foreach ($property in $incoming.PSObject.Properties) {
     switch ($property.Name) {
       'fontSize' { $script:style.fontSize = [int](Clamp-Number $property.Value 12 96 20) }
@@ -219,8 +273,17 @@ function Apply-Style($incoming) {
     }
   }
   Update-StyleVisuals
+  if ($null -eq $script:subWindow) { return }
+  if ([int]$script:style.maxLines -ne $previousMaxLines) {
+    # The panel's row stepper (or resetDefaults) asks for a new row count;
+    # return to content-sized height so the requested rows are actually shown.
+    Set-HeightAuto
+  } elseif ($script:userSizedHeight -and
+    ([double]$script:style.fontSize -ne $previousFontSize -or [bool]$script:style.bilingual -ne $previousBilingual)) {
+    Clamp-ManualHeight
+    Sync-RowLimitFromHeight
+  }
 }
-
 # 右键字幕窗只提供最需要随手可达的一个动作：停止翻译并关闭字幕。
 # 菜单项点击后同时通知 Host 停止采集，并立即清空/隐藏本地字幕；
 # 即使 Host 暂时无响应，屏幕上的字幕也会先消失。
@@ -244,6 +307,125 @@ function Initialize-SubtitleMenu {
   $script:subWindow.ContextMenu = $script:subMenu
 }
 
+function Start-SubtitleResize([string]$edge, $position) {
+  $script:resizing = $true
+  $script:resizeEdge = $edge
+  $script:resizeHorizontal = ($edge -match 'Left|Right')
+  $script:resizeVertical = ($edge -match 'Top|Bottom')
+  if ($script:resizeHorizontal) {
+    if (-not $script:userSizedWidth -or -not (Test-FiniteNumber $script:manualWidth)) {
+      $script:manualWidth = [double]$script:subWindow.ActualWidth
+    }
+    $script:userSizedWidth = $true
+  }
+  if ($script:resizeVertical) {
+    if (-not $script:userSizedHeight -or -not (Test-FiniteNumber $script:manualHeight)) {
+      $script:manualHeight = [double]$script:subWindow.ActualHeight
+    }
+    $script:userSizedHeight = $true
+    # A click on an edge without dragging must still land on a valid 2-5 row
+    # height (auto height may currently be one row).
+    $bounds = Get-SubtitleHeightBounds
+    $height = [double]$script:manualHeight
+    if ($height -lt $bounds.min) { $height = $bounds.min }
+    if ($height -gt $bounds.max) { $height = $bounds.max }
+    if ([math]::Abs($height - [double]$script:manualHeight) -ge 0.5) {
+      if ($edge -match 'Top') { $script:subWindow.Top = $script:subWindow.Top + ([double]$script:manualHeight - $height) }
+      $script:manualHeight = $height
+    }
+  }
+  if ($script:userSizedHeight) {
+    $script:subWindow.SizeToContent = [System.Windows.SizeToContent]::Manual
+    $script:subWindow.Height = [double]$script:manualHeight
+  } else {
+    $script:subWindow.SizeToContent = [System.Windows.SizeToContent]::Height
+  }
+  if ($script:resizeHorizontal) { $script:subWindow.Width = [double]$script:manualWidth }
+  $script:subWindow.UpdateLayout()
+  $script:resizeStart = [pscustomobject]@{
+    left = [double]$script:subWindow.Left
+    top = [double]$script:subWindow.Top
+    width = [double]$script:subWindow.ActualWidth
+    height = [double]$script:subWindow.ActualHeight
+  }
+  $dpi = [System.Windows.Media.VisualTreeHelper]::GetDpi($script:subWindow)
+  $screen = $script:subWindow.PointToScreen($position)
+  $script:resizeStartScreen = [pscustomobject]@{
+    x = $screen.X; y = $screen.Y
+    scaleX = $dpi.DpiScaleX; scaleY = $dpi.DpiScaleY
+  }
+  $script:resizeRows = Resolve-RowLimitFromHeight ([double]$script:subWindow.ActualHeight) ([double]$script:style.fontSize) ([bool]$script:style.bilingual) ([double]$script:subtitlePaddingY)
+  $script:userPositioned = $true
+  $script:manualLeft = $script:subWindow.Left
+  $script:manualTop = $script:subWindow.Top
+  $script:subWindow.Cursor = Get-ResizeCursor $edge
+  [void][System.Windows.Input.Mouse]::Capture($script:subWindow)
+}
+
+function Update-SubtitleResize($position) {
+  if (-not $script:resizing -or $null -eq $script:resizeStart -or $null -eq $script:resizeStartScreen) { return }
+  $dpi = [System.Windows.Media.VisualTreeHelper]::GetDpi($script:subWindow)
+  $screen = $script:subWindow.PointToScreen($position)
+  $dx = ($screen.X - $script:resizeStartScreen.x) / [double]$script:resizeStartScreen.scaleX
+  $dy = ($screen.Y - $script:resizeStartScreen.y) / [double]$script:resizeStartScreen.scaleY
+  $bounds = Get-SubtitleHeightBounds
+  $size = Resolve-SubtitleResize $script:resizeStart $dx $dy $script:resizeEdge ([double]$script:minSubtitleWidth) ([double]$bounds.min) ([double]$bounds.max)
+  if ($script:resizeHorizontal) {
+    $script:subWindow.Width = $size.width
+    $script:subWindow.Left = $size.left
+    $script:manualWidth = $size.width
+    $script:manualLeft = $size.left
+  }
+  if ($script:resizeVertical) {
+    $script:subWindow.Height = $size.height
+    $script:subWindow.Top = $size.top
+    $script:manualHeight = $size.height
+    $script:manualTop = $size.top
+    $rows = Resolve-RowLimitFromHeight ([double]$size.height) ([double]$script:style.fontSize) ([bool]$script:style.bilingual) ([double]$script:subtitlePaddingY)
+    if ($rows -ne $script:resizeRows) {
+      $script:resizeRows = $rows
+      Render-Cues
+    }
+  }
+  $script:subWindow.Cursor = Get-ResizeCursor $script:resizeEdge
+}
+
+function Finish-SubtitleResize {
+  if (-not $script:resizing) { return }
+  $script:resizing = $false
+  try { [System.Windows.Input.Mouse]::Capture($null) } catch { }
+  $script:userPositioned = $true
+  $script:manualLeft = $script:subWindow.Left
+  $script:manualTop = $script:subWindow.Top
+  if ($script:resizeVertical) {
+    # Snap to an exact row height on release: continuous dragging changes the
+    # row count, but the frame should not keep unused blank space.
+    $rows = Resolve-RowLimitFromHeight ([double]$script:manualHeight) ([double]$script:style.fontSize) ([bool]$script:style.bilingual) ([double]$script:subtitlePaddingY)
+    $unit = Get-RowUnit ([double]$script:style.fontSize) ([bool]$script:style.bilingual)
+    $snap = [double]$script:subtitlePaddingY + $unit * $rows
+    $oldBottom = [double]$script:manualTop + [double]$script:manualHeight
+    $wasTop = ($script:resizeEdge -match 'Top')
+    $script:manualHeight = $snap
+    $script:subWindow.SizeToContent = [System.Windows.SizeToContent]::Manual
+    $script:subWindow.Height = $snap
+    if ($wasTop) {
+      $script:manualTop = $oldBottom - $snap
+      $script:subWindow.Top = $script:manualTop
+    }
+    # Update the local value first so the Host's style echo does not reset the
+    # manual height.
+    Sync-RowLimitFromHeight
+  }
+  $script:resizeEdge = ''
+  $script:resizeStart = $null
+  $script:resizeStartScreen = $null
+  $script:resizeHorizontal = $false
+  $script:resizeVertical = $false
+  $script:resizeRows = 0
+  $script:subWindow.Cursor = [System.Windows.Input.Cursors]::Arrow
+  Render-Cues
+}
+
 function Initialize-SubtitleWindow {
   $script:subWindow = New-Object System.Windows.Window
   $script:subWindow.WindowStyle = [System.Windows.WindowStyle]::None
@@ -259,14 +441,30 @@ function Initialize-SubtitleWindow {
   $script:subBorder = New-Object System.Windows.Controls.Border
   $script:subBorder.CornerRadius = New-Object System.Windows.CornerRadius 10
   $script:subBorder.Padding = New-Object System.Windows.Thickness 18, 10, 18, 10
+  $script:subBorder.ClipToBounds = $true
+  # Bottom-align the stack so a fixed-height frame always keeps the newest
+  # sentence visible and clips older rows at the top.
+  $script:subHost = New-Object System.Windows.Controls.Grid
+  $script:subHost.ClipToBounds = $true
   $script:subPanel = New-Object System.Windows.Controls.StackPanel
-  $script:subBorder.Child = $script:subPanel
+  $script:subPanel.VerticalAlignment = [System.Windows.VerticalAlignment]::Bottom
+  $script:subPanel.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Stretch
+  [void]$script:subHost.Children.Add($script:subPanel)
+  $script:subBorder.Child = $script:subHost
   $script:subWindow.Content = $script:subBorder
   Initialize-SubtitleMenu
-  # Remember the drop point before a cue render can reposition the window.
-  # `dragging` suppresses placement because DragMove's nested message loop
-  # still lets the stdin timer deliver cues while the mouse is held down.
-  $script:subWindow.add_MouseLeftButtonDown({
+  # Edge/corner drags resize; the body still drag-moves. dragging and
+  # resizing suppress placement because DragMove's nested message loop still
+  # lets the stdin timer deliver cues while the mouse is held down.
+  $script:subWindow.add_PreviewMouseLeftButtonDown({
+    param($sender, $eventArgs)
+    $position = $eventArgs.GetPosition($script:subWindow)
+    $edge = Get-ResizeEdge $position $script:subWindow.ActualWidth $script:subWindow.ActualHeight $script:resizeBorder
+    if ($edge -ne '') {
+      Start-SubtitleResize $edge $position
+      $eventArgs.Handled = $true
+      return
+    }
     $script:dragging = $true
     try { $script:subWindow.DragMove() } catch { }
     finally {
@@ -274,9 +472,33 @@ function Initialize-SubtitleWindow {
       $script:userPositioned = $true
       $script:manualLeft = $script:subWindow.Left
       $script:manualTop = $script:subWindow.Top
+      $script:subWindow.Cursor = [System.Windows.Input.Cursors]::Arrow
     }
-  })}
-
+  })
+  $script:subWindow.add_PreviewMouseMove({
+    param($sender, $eventArgs)
+    if ($script:resizing) {
+      Update-SubtitleResize $eventArgs.GetPosition($script:subWindow)
+      $eventArgs.Handled = $true
+      return
+    }
+    if ($script:dragging) { return }
+    $edge = Get-ResizeEdge ($eventArgs.GetPosition($script:subWindow)) $script:subWindow.ActualWidth $script:subWindow.ActualHeight $script:resizeBorder
+    $script:subWindow.Cursor = Get-ResizeCursor $edge
+  })
+  $script:subWindow.add_PreviewMouseLeftButtonUp({
+    param($sender, $eventArgs)
+    if ($script:resizing) {
+      Finish-SubtitleResize
+      $eventArgs.Handled = $true
+    }
+  })
+  $script:subWindow.add_MouseLeave({
+    if (-not $script:resizing -and -not $script:dragging) {
+      $script:subWindow.Cursor = [System.Windows.Input.Cursors]::Arrow
+    }
+  })
+}
 function Get-WindowHandle($window) {
   $helper = New-Object System.Windows.Interop.WindowInteropHelper ($window)
   return $helper.Handle
@@ -289,6 +511,88 @@ function Test-FiniteNumber($value) {
   return (-not [double]::IsNaN($number) -and -not [double]::IsInfinity($number))
 }
 
+# One sentence row contains the large translation plus (when bilingual) the
+# smaller source line, margins and the 4 px history gap. This estimate maps a
+# dragged window height to a row count without measuring text.
+function Get-RowUnit([double]$fontSize, [bool]$bilingual) {
+  if (-not (Test-FiniteNumber $fontSize) -or $fontSize -le 0) { $fontSize = 20 }
+  if ($bilingual) { return $fontSize * 2.0 + 7.5 }
+  return $fontSize * 1.25 + 4.5
+}
+
+# Pure height -> row-count rule (2-5), used by -SelfTestResize and Get-RowLimit.
+function Resolve-RowLimitFromHeight([double]$height, [double]$fontSize, [bool]$bilingual, [double]$paddingY) {
+  $unit = Get-RowUnit $fontSize $bilingual
+  if (-not (Test-FiniteNumber $height) -or $height -le 0 -or $unit -le 0) { return 2 }
+  # 2 px tolerance absorbs WPF line-height and window-pixel rounding.
+  $rows = [math]::Floor((($height - $paddingY) + 2) / $unit)
+  if ($rows -lt 2) { return 2 }
+  if ($rows -gt 5) { return 5 }
+  return [int]$rows
+}
+
+function Get-SubtitleHeightBounds {
+  $unit = Get-RowUnit ([double]$script:style.fontSize) ([bool]$script:style.bilingual)
+  return [pscustomobject]@{
+    min = [double]$script:subtitlePaddingY + $unit * 2
+    max = [double]$script:subtitlePaddingY + $unit * 5
+  }
+}
+
+# Which edge/corner is under the pointer? Empty string means the normal drag area.
+function Get-ResizeEdge($position, [double]$width, [double]$height, [double]$border) {
+  if ($null -eq $position) { return '' }
+  $left = $position.X -le $border
+  $right = $position.X -ge ($width - $border)
+  $top = $position.Y -le $border
+  $bottom = $position.Y -ge ($height - $border)
+  if ($top -and $left) { return 'TopLeft' }
+  if ($top -and $right) { return 'TopRight' }
+  if ($bottom -and $left) { return 'BottomLeft' }
+  if ($bottom -and $right) { return 'BottomRight' }
+  if ($left) { return 'Left' }
+  if ($right) { return 'Right' }
+  if ($top) { return 'Top' }
+  if ($bottom) { return 'Bottom' }
+  return ''
+}
+
+function Get-ResizeCursor([string]$edge) {
+  switch ($edge) {
+    'Left' { return [System.Windows.Input.Cursors]::SizeWE }
+    'Right' { return [System.Windows.Input.Cursors]::SizeWE }
+    'Top' { return [System.Windows.Input.Cursors]::SizeNS }
+    'Bottom' { return [System.Windows.Input.Cursors]::SizeNS }
+    'TopLeft' { return [System.Windows.Input.Cursors]::SizeNWSE }
+    'BottomRight' { return [System.Windows.Input.Cursors]::SizeNWSE }
+    'TopRight' { return [System.Windows.Input.Cursors]::SizeNESW }
+    'BottomLeft' { return [System.Windows.Input.Cursors]::SizeNESW }
+    default { return [System.Windows.Input.Cursors]::Arrow }
+  }
+}
+
+# Pure resize math: moving the left/top edge keeps the opposite edge fixed and
+# clamps width to minWidth and height to the 2-5 row range.
+function Resolve-SubtitleResize($start, [double]$dx, [double]$dy, [string]$edge, [double]$minWidth, [double]$minHeight, [double]$maxHeight) {
+  $width = [double]$start.width
+  $height = [double]$start.height
+  $left = [double]$start.left
+  $top = [double]$start.top
+  if (-not (Test-FiniteNumber $dx)) { $dx = 0 }
+  if (-not (Test-FiniteNumber $dy)) { $dy = 0 }
+  $isLeft = $edge -match 'Left'
+  $isRight = $edge -match 'Right'
+  $isTop = $edge -match 'Top'
+  $isBottom = $edge -match 'Bottom'
+  if ($isLeft) { $width -= $dx } elseif ($isRight) { $width += $dx }
+  if ($isTop) { $height -= $dy } elseif ($isBottom) { $height += $dy }
+  if ($width -lt $minWidth) { $width = $minWidth }
+  if ($height -lt $minHeight) { $height = $minHeight }
+  if ($maxHeight -gt 0 -and $height -gt $maxHeight) { $height = $maxHeight }
+  if ($isLeft) { $left = [double]$start.left + [double]$start.width - $width }
+  if ($isTop) { $top = [double]$start.top + [double]$start.height - $height }
+  return [pscustomobject]@{ left = $left; top = $top; width = $width; height = $height }
+}
 # Pure placement math (no WPF calls) so the multi-monitor rules are testable
 # with -SelfTestPosition. A dragged position is returned verbatim: clamping it
 # against the primary monitor's WorkArea moved the overlay back to the primary
@@ -305,11 +609,21 @@ function Resolve-SubtitlePlacement($area, [double]$width, [double]$height, $manu
 }
 
 function Position-SubtitleWindow {
-  # A cue can arrive while DragMove pumps messages; do not fight the drag.
-  if ($script:dragging) { return }
+  # A cue can arrive while DragMove or a resize pumps messages; do not fight it.
+  if ($script:dragging -or $script:resizing) { return }
   $area = [System.Windows.SystemParameters]::WorkArea
-  $width = [math]::Round($area.Width * [double]$script:style.widthPercent / 100)
-  if ($width -lt 240) { $width = 240 }
+  if ($script:userSizedWidth -and (Test-FiniteNumber $script:manualWidth)) {
+    $width = [math]::Max([double]$script:minSubtitleWidth, [double]$script:manualWidth)
+  } else {
+    $width = [math]::Round($area.Width * [double]$script:style.widthPercent / 100)
+    if ($width -lt $script:minSubtitleWidth) { $width = $script:minSubtitleWidth }
+  }
+  if ($script:userSizedHeight -and (Test-FiniteNumber $script:manualHeight)) {
+    $script:subWindow.SizeToContent = [System.Windows.SizeToContent]::Manual
+    $script:subWindow.Height = [double]$script:manualHeight
+  } else {
+    $script:subWindow.SizeToContent = [System.Windows.SizeToContent]::Height
+  }
   $script:subWindow.Width = $width
   $script:subWindow.UpdateLayout()
   $height = $script:subWindow.ActualHeight
@@ -323,7 +637,6 @@ function Position-SubtitleWindow {
   $script:subWindow.Left = $placement.left
   $script:subWindow.Top = $placement.top
 }
-
 function Test-CueTarget($cue) {
   foreach ($line in @($cue.lines)) {
     if ($line.kind -eq 'target' -and ([string]$line.text).Trim() -ne '') { return $true }
@@ -332,6 +645,9 @@ function Test-CueTarget($cue) {
 }
 
 function Get-RowLimit {
+  if ($script:userSizedHeight -and (Test-FiniteNumber $script:manualHeight)) {
+    return (Resolve-RowLimitFromHeight ([double]$script:manualHeight) ([double]$script:style.fontSize) ([bool]$script:style.bilingual) ([double]$script:subtitlePaddingY))
+  }
   $limit = [int]$script:style.maxLines
   if ($limit -lt 2) { return 2 }
   if ($limit -gt 5) { return 5 }
@@ -631,6 +947,8 @@ function Handle-Hotkey([int]$id) {
     'fontDown' { Send-Action 'setFontSize' ([int]$script:style.fontSize - 2) }
     'bilingual' {
       $script:style.bilingual = -not [bool]$script:style.bilingual
+      Clamp-ManualHeight
+      Sync-RowLimitFromHeight
       Render-Cues
       Queue-Subtitle @{ bilingual = [bool]$script:style.bilingual }
     }
@@ -880,6 +1198,72 @@ function Run-SelfTestPosition {
 
   Write-Output ('SUMMARY failures=' + $script:selfTestStatus)
 }
+function Assert-RowCount([string]$stage, $actual, [int]$expected) {
+  $ok = ([int]$actual -eq $expected)
+  if (-not $ok) { $script:selfTestStatus = 1 }
+  $mark = if ($ok) { 'PASS' } else { 'FAIL' }
+  Write-Output ("{0} {1}: expected={2} actual={3}" -f $mark, $stage, $expected, $actual)
+}
+
+function Assert-ResizeSize([string]$stage, $actual, [double]$left, [double]$top, [double]$width, [double]$height) {
+  $ok = ($null -ne $actual -and
+    [math]::Abs([double]$actual.left - $left) -lt 0.6 -and
+    [math]::Abs([double]$actual.top - $top) -lt 0.6 -and
+    [math]::Abs([double]$actual.width - $width) -lt 0.6 -and
+    [math]::Abs([double]$actual.height - $height) -lt 0.6)
+  if (-not $ok) { $script:selfTestStatus = 1 }
+  $mark = if ($ok) { 'PASS' } else { 'FAIL' }
+  $actualText = if ($null -eq $actual) { '<none>' } else { '{0},{1} {2}x{3}' -f $actual.left, $actual.top, $actual.width, $actual.height }
+  Write-Output ("{0} {1}: expected={2},{3} {4}x{5} actual={6}" -f $mark, $stage, $left, $top, $width, $height, $actualText)
+}
+
+# Pure resize checks: height maps to 2-5 rows, the frame cannot get narrower
+# than minSubtitleWidth, and moving an edge keeps the opposite edge fixed.
+function Run-SelfTestResize {
+  $font = 20.0
+  $bilingual = $true
+  $padding = 20.0
+  $unit = Get-RowUnit $font $bilingual
+  $minHeight = $padding + $unit * 2
+  $maxHeight = $padding + $unit * 5
+
+  Assert-RowCount '最小高度=2行' (Resolve-RowLimitFromHeight $minHeight $font $bilingual $padding) 2
+  Assert-RowCount '不足两行高度钳到2行' (Resolve-RowLimitFromHeight 20 $font $bilingual $padding) 2
+  Assert-RowCount '三行高度' (Resolve-RowLimitFromHeight ($padding + $unit * 3) $font $bilingual $padding) 3
+  Assert-RowCount '五行高度' (Resolve-RowLimitFromHeight $maxHeight $font $bilingual $padding) 5
+  Assert-RowCount '超过五行仍为5行' (Resolve-RowLimitFromHeight ($maxHeight + 500) $font $bilingual $padding) 5
+
+  $start = [pscustomobject]@{ left = 100.0; top = 100.0; width = 700.0; height = ($padding + $unit * 3) }
+  $minWidth = 320.0
+  $resized = Resolve-SubtitleResize $start 500 0 'Left' $minWidth $minHeight $maxHeight
+  Assert-ResizeSize '左边缘不能窄于最小宽度且右边缘固定' $resized 480 100 320 ($padding + $unit * 3)
+
+  $resized = Resolve-SubtitleResize $start 100 0 'Right' $minWidth $minHeight $maxHeight
+  Assert-ResizeSize '右边缘加宽' $resized 100 100 800 ($padding + $unit * 3)
+
+  $resized = Resolve-SubtitleResize $start 0 -1000 'Bottom' $minWidth $minHeight $maxHeight
+  Assert-ResizeSize '下边缘不能低于两行' $resized 100 100 700 $minHeight
+
+  $resized = Resolve-SubtitleResize $start 0 1000 'Bottom' $minWidth $minHeight $maxHeight
+  Assert-ResizeSize '下边缘最多五行' $resized 100 100 700 $maxHeight
+
+  $resized = Resolve-SubtitleResize $start 0 -1000 'Top' $minWidth $minHeight $maxHeight
+  Assert-ResizeSize '上边缘最多五行且底边固定' $resized 100 (100 + $start.height - $maxHeight) 700 $maxHeight
+
+  $edge = Get-ResizeEdge ([pscustomobject]@{ X = 2; Y = 2 }) 700 200 8
+  $ok = ($edge -eq 'TopLeft')
+  if (-not $ok) { $script:selfTestStatus = 1 }
+  $mark = if ($ok) { 'PASS' } else { 'FAIL' }
+  Write-Output ("{0} 左上角命中缩放: actual={1}" -f $mark, $edge)
+
+  $edge = Get-ResizeEdge ([pscustomobject]@{ X = 350; Y = 100 }) 700 200 8
+  $ok = ($edge -eq '')
+  if (-not $ok) { $script:selfTestStatus = 1 }
+  $mark = if ($ok) { 'PASS' } else { 'FAIL' }
+  Write-Output ("{0} 字幕中间仍是拖动区: actual={1}" -f $mark, $edge)
+
+  Write-Output ('SUMMARY failures=' + $script:selfTestStatus)
+}
 function Run-Overlay {
   if ($ConfigBase64 -ne '') {
     try {
@@ -939,6 +1323,11 @@ if ($SelfTestRows -or $SelfTestHold) {
 
 if ($SelfTestPosition) {
   Run-SelfTestPosition
+  exit $script:selfTestStatus
+}
+
+if ($SelfTestResize) {
+  Run-SelfTestResize
   exit $script:selfTestStatus
 }
 

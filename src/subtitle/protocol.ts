@@ -19,7 +19,7 @@ export interface UiState {
 
 export interface StylePayload {
   fontSize: number
-  /** Sentence rows on screen (2-5); the last one is the sentence being spoken. */
+  /** Default sentence rows (2-5); the last one is the sentence being spoken. Manual resize derives rows from height. */
   maxLines: number
   marginPercent: number
   widthPercent: number

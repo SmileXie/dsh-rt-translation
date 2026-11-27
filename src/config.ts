@@ -14,7 +14,7 @@ export interface Config {
   autoPauseAfterMs?: number
   subtitle?: {
     fontSize?: number
-    /** Sentence rows on screen (2-5); the newest row is the sentence being spoken. */
+    /** Default sentence rows (2-5); after a manual resize the overlay derives rows from its height. */
     maxLines?: number
     widthPercent?: number
     marginPercent?: number
@@ -41,7 +41,7 @@ export interface ResolvedSettings {
   autoPauseAfterMs: number
   subtitle: {
     fontSize: number
-    /** Sentence rows on screen (2-5); the last one is the sentence being spoken. */
+    /** Default sentence rows (2-5); the last one is the sentence being spoken. Manual resize derives rows from height. */
     maxLines: number
     widthPercent: number
     marginPercent: number
