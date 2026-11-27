@@ -6,9 +6,9 @@ DeepSeek Harness 的实时系统声音翻译字幕插件：监听电脑正在播
 
 下面这段录屏展示了插件的工作过程：开始收听电脑正在播放的音频后，字幕窗在屏幕底部实时滚动显示原文与译文。
 
-<video src="assets/20261127-131500.mp4" controls="controls" width="800"></video>
+<video src="https://github.com/SmileXie/dsh-rt-translation/raw/main/assets/20261127-131500.mp4" controls="controls" preload="metadata" width="800"></video>
 
-如果页面没有显示播放器，可以直接[打开视频文件](assets/20261127-131500.mp4)。
+如果内联播放器没有出现，可以[打开视频文件页](assets/20261127-131500.mp4)：GitHub 的文件页同样带有播放器，也可以下载后用本地播放器观看。
 
 ## 能做什么
 
