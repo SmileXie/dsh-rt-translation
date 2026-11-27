@@ -247,3 +247,7 @@ loopback-capture (PCM 48k stereo)
 - `src/subtitle/windows-wpf.ts` + `assets/overlay/overlay.ps1`：实现 `SubtitleRenderer` 接口即可换成 GTK/Qt/其他叠加窗；协议、控制器、命令和翻译链路不需要改。
 
 `src/index.ts` 在非 Windows 平台会明确报错，避免半可用状态。
+
+## 许可证
+
+本项目以 [MIT 许可证](LICENSE) 发布，版权所有 © 2026 SmileXie。可自由使用、修改与分发，保留版权声明与许可声明即可。

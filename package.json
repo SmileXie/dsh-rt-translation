@@ -2,6 +2,7 @@
   "name": "dsh-rt-translation",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Realtime system-audio translation subtitles for DeepSeek Harness: on-device speech recognition, streaming LLM translation, and a draggable always-on-top subtitle window",
   "type": "module",
   "main": "src/index.ts",
