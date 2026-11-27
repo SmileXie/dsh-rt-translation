@@ -25,8 +25,8 @@
 | --- | --- | --- |
 | `npm install` | 安装插件自身依赖 | 链接安装不会自动装，缺了插件加载失败 |
 | `dsh web --patch .\cordis.patch.yml` | 开发模式从本仓库加载 | 在 DSH 仓库用 `pnpm dsh ...`；必须用 `cordis.patch.yml`，不能传 bundle patch |
-| `npm test` | 单元/集成测试（`node --test`，127 个） | 提交前必须通过 |
-| `npm run test:overlay` | 行窗口 + 多屏位置 + 右键菜单自检（9 + 5 + 1 个断言，不弹窗） | 改 `overlay.ps1` 行选择/窗口定位/菜单后必跑 |
+| `npm test` | 单元/集成测试（`node --test`，132 个） | 提交前必须通过 |
+| `npm run test:overlay` | 行窗口 + 多屏位置 + 右键菜单自检（11 + 5 + 1 个断言，不弹窗） | 改 `overlay.ps1` 行选择/窗口定位/菜单后必跑 |
 | `npm run test:icon` | 托盘图标生成自检（`PASS tray icon 32x32`） | 改 `assets/icon.jpeg` / 图标代码后跑 |
 | `powershell ... overlay.ps1 -SelfTest` | 弹 1.5 秒字幕窗，验证 WPF 渲染 | 需要桌面会话 |
 | `powershell ... overlay.ps1 -SelfTestMeeting` | 同上，双语文案 | 名字是历史遗留，仅“双语” |
@@ -113,10 +113,11 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 行为要点：
 
 - 字幕窗显示最近 `maxLines` 句：最后一行是当前句，上方是历史；历史行透明度 0.7。
+- 译文不等整句：partial 识别结果一到就流式翻译并上屏；后续 partial 与 final 各自重新翻译，**覆盖**上一版译文而不是追加。旧译文在新请求的首个 token 到达前保持可见，避免等待时整行空白。
 - 翻译 prompt 依次是 `[Background]`（摘要）、`[Glossary]`（本句命中的词条）、`[Recent context]`、`[Current]`；任一为空时整段省略。词条按大小写不敏感子串匹配本句原文，最多 12 条，所以词表可以很长而不拖慢每句请求。
 - 「提炼背景并生成词表」要求先选定源语言：`sourceLanguage: auto` 时控制器直接拒绝（不调用模型），面板显示「请先选择源语言」；背景为空时同样不调用模型，按钮仍可点击并在按钮右侧立即提示先填背景。重新点击时面板会先收起上一次的 `glossaryError`（不等待模型返回），问题仍在（例如源语言仍是 `auto`）再由本次校验结果重新显示。
 - 静音时保留历史，不自动关闭；**停止翻译**（⏸ / `/rt stop` / dispose）会清空并关闭字幕窗；`/rt restart` 不清屏。
-- 新译文出现后至少保留 `minReadMs` 才允许滚出，必要时短暂多显示一行（`maxLines + 1`）。
+- 定稿（final）译文出现后至少保留 `minReadMs` 才允许滚出，必要时短暂多显示一行（`maxLines + 1`）；overlay 在每次 target 更新时重算 `readAt`，所以 partial 早早上屏不会让定稿译文被立刻滚走。
 - 字幕窗可鼠标拖动；拖动位置只在当前会话保持，初始位置底部居中。拖到任意显示器后都留在该屏幕，不会被主屏工作区钳回。没有顶部/底部配置。
 - 右键字幕窗弹出「停止翻译并关闭字幕」：等同 `/rt stop`（停止采集、清空并隐藏字幕），托盘与控制页仍在，可从 ▶ / `Ctrl+Alt+S` 再次开始。
 - 托盘：**左键**开始/停止；**右键只有「退出」**。退出只关闭 overlay/托盘，之后从控制页 ▶、`Ctrl+Alt+S` 或 `/rt start` 可重新拉起，无需重启 DSH。
@@ -200,11 +201,15 @@ client.js（侧边栏入口 sidebar.panellist + 主区页面 main[key]，同一�
 - `preRollMs`（默认 400）兜住轻声起句；`silenceMs` 低于约 300 ms 会把一句话按换气切碎，控制页提示也以此为准。
 - 改这里必须补 `tests/vad.test.ts` 的回归用例（轻声句尾/句首、句中轻声字、停顿阈值、强制切分）。
 
-### 部分识别（partial）
+### 部分识别（partial）与增量翻译
 
+- partial 现在**也要翻译**：不再等 final。`Pipeline.handle` 的 partial 分支在识别完成后立即 `streamTranslation`，首个 delta 用 `SubtitleModel.setTranslation` **覆盖**上一版译文，同一次输出后续 delta 才 `appendTranslation`；final 再覆盖一次。不要改回「等 final 才翻译」，那正是用户抱怨的时延来源。
 - `Pipeline.accept` 在新的 partial 或 final 到来时，只丢弃**尚未开始**的 partial；**不要 abort 正在识别的 active partial**。当前 SenseVoice provider 在识别请求被取消时会停掉本地 worker；abort active partial 会让下一次识别冷启动，逐词字幕永远追不上，最后只剩 final 一次上屏（用户看到的就是「整句说完才一下打印出来」）。
+- 可以取消的是 `job.translation`（只管 LLM 流）：新 partial 到来时，仅当该 partial 已经产出过 token（`job.streamed`）才 abort 旧译文；尚未出首个 token 的不 abort，否则 900 ms 一次的 partial 会让慢模型永远来不及出字。final 无条件抢占 in-flight 的 partial 翻译。abort 后 `cancelled(job)` 必须同时检查 `job.abort` / `job.translation` / `lifetime`，且不要计入翻译失败。
+- partial 翻译失败只记日志，不显示「⚠ 翻译失败」、不计入 3 次失败上限（只有 final 计数，否则 900 ms 一次的失败会立刻触发 onFatal）；partial 译文也不进 `[Recent context]`。
 - 队列里最多保留一个待识别 partial，新的 partial 会替换旧的；final 会清掉待识别 partial，但等 active partial 完成后再开始，所以 final 的文本最终会覆盖临时文本。
-- 改这里必须跑 `tests/pipeline.test.ts` 的两条回归用例：慢 partial 不被新 partial 取消并先上屏；final 等它完成后再覆盖。
+- 改这里必须跑 `tests/pipeline.test.ts` 的回归用例：慢 partial 不被新 partial 取消并先上屏；final 等它完成后再覆盖；partial 先翻译上屏且 final 覆盖不追加；新 partial 取消已上屏的旧译文；partial 失败不闪警告。
+- overlay 侧不用改协议：同一 cue id 的 `cue` op 会 `Store-Cue` 覆盖 target。`readAt` 在每次 target 更新时刷新，让定稿译文重新获得 `minReadMs`。
 
 ### 协议与状态
 

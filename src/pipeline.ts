@@ -35,6 +35,10 @@ interface Job {
   audio: Int16Array
   queuedAt: number
   abort: AbortController
+  /** Aborts only this job's LLM stream when a newer segment supersedes it. */
+  translation: AbortController
+  /** True once the LLM produced text for this job. */
+  streamed: boolean
 }
 
 const FRAME = 320
@@ -144,8 +148,31 @@ export class Pipeline {
         this.deps.log('drop stale segment')
       }
     }
-    this.queue.push({ kind: event.kind, audio: event.audio, queuedAt: this.deps.now(), abort: new AbortController() })
+    this.abortSupersededPartialTranslation(event.kind)
+    this.queue.push({
+      kind: event.kind,
+      audio: event.audio,
+      queuedAt: this.deps.now(),
+      abort: new AbortController(),
+      translation: new AbortController(),
+      streamed: false,
+    })
     this.pump()
+  }
+
+  /**
+   * Stop translating a partial whose text is already on screen when newer audio
+   * arrives, so the latest words get translated next instead of waiting for a
+   * stale request. A partial that has not produced a token yet is left alone:
+   * aborting it would restart the request every 900 ms and, with a slow first
+   * token, no translation would ever reach the screen. A final is authoritative
+   * and always preempts the in-flight partial, even before its first token.
+   */
+  private abortSupersededPartialTranslation(kind: 'partial' | 'final'): void {
+    const active = this.activeJob
+    if (active?.kind !== 'partial') return
+    if (kind === 'partial' && !active.streamed) return
+    active.translation.abort(new Error(kind === 'final' ? 'final segment' : 'newer partial'))
   }
 
   /**
@@ -173,7 +200,7 @@ export class Pipeline {
       if (job === undefined) break
       this.activeJob = job
       try { await this.handle(job) } catch (error) {
-        if (!job.abort.signal.aborted && !this.lifetime.signal.aborted) this.deps.log(`${job.kind} job failed`, error)
+        if (!this.cancelled(job)) this.deps.log(`${job.kind} job failed`, error)
       } finally {
         if (this.activeJob === job) this.activeJob = undefined
       }
@@ -197,14 +224,14 @@ export class Pipeline {
     try {
       ({ text } = await this.deps.stt.transcribe(pcm16ToWav(job.audio), settings.sourceLanguage, this.jobSignal(job, STT_TIMEOUT_MS)))
     } catch (error) {
-      if (job.abort.signal.aborted || this.lifetime.signal.aborted) return
+      if (this.cancelled(job)) return
       this.sttFailures += 1
       this.deps.log('stt failed', error)
       if (this.sttFailures >= 3) { this.deps.onFatal?.(error); return }
       if (job.kind === 'final') this.showFailure(id, '⚠ 识别失败')
       return
     }
-    if (job.abort.signal.aborted || this.lifetime.signal.aborted) return
+    if (this.cancelled(job)) return
     this.sttFailures = 0
     const transcribedAt = this.deps.now()
     const sttMs = transcribedAt - started
@@ -212,15 +239,35 @@ export class Pipeline {
     if (source === '') return
     this.lastSpeech = this.deps.now()
 
+    const detected = settings.sourceLanguage === 'auto' ? detectLanguage(source) : settings.sourceLanguage
+    const needsTranslation = detected !== settings.targetLanguage
+
+    // Translate a partial as soon as it is recognised. Waiting for the final
+    // segment made the first translated words appear only after the speaker had
+    // finished the sentence and the silence gate had passed.
     if (job.kind === 'partial') {
       this.deps.subtitles.upsertSource(id, source, true)
+      if (!needsTranslation) {
+        this.deps.subtitles.clearTranslation(id)
+        this.renderLatest()
+        return
+      }
+      this.deps.subtitles.beginTranslation(id)
       this.renderLatest()
+      try {
+        await this.streamTranslation(job, id, source, settings, transcribedAt)
+      } catch (error) {
+        if (this.cancelled(job)) return
+        // The next partial or the final retries; a warning every 900 ms would
+        // only flicker, so only finals count towards the fatal threshold.
+        this.deps.log('partial translation failed', error)
+      }
       return
     }
 
-    const detected = settings.sourceLanguage === 'auto' ? detectLanguage(source) : settings.sourceLanguage
-    if (detected === settings.targetLanguage) {
+    if (!needsTranslation) {
       this.deps.subtitles.upsertSource(id, source, false)
+      this.deps.subtitles.clearTranslation(id)
       this.deps.subtitles.finishCue(id, this.deps.now())
       this.renderLatest()
       this.record({ queueWait, stt: sttMs, firstToken: 0, total: this.deps.now() - job.queuedAt })
@@ -233,22 +280,12 @@ export class Pipeline {
     let translated = ''
     let firstToken = 0
     try {
-      for await (const delta of this.deps.translator.translate({
-        text: source,
-        source: settings.sourceLanguage,
-        target: settings.targetLanguage,
-        context: this.context.slice(-settings.translate.contextTurns),
-        glossary: [...settings.translate.glossary],
-        brief: settings.translate.backgroundBrief,
-        signal: this.jobSignal(job, TRANSLATE_TIMEOUT_MS),
-      })) {
-        if (firstToken === 0) firstToken = this.deps.now() - transcribedAt
-        translated += delta
-        this.deps.subtitles.appendTranslation(id, delta)
-        this.renderLatest()
-      }
+      const result = await this.streamTranslation(job, id, source, settings, transcribedAt)
+      translated = result.translated
+      firstToken = result.firstToken
+      if (this.cancelled(job)) return
     } catch (error) {
-      if (job.abort.signal.aborted || this.lifetime.signal.aborted) return
+      if (this.cancelled(job)) return
       this.translationFailures += 1
       this.deps.log('translation failed', error)
       if (this.translationFailures >= 3) { this.deps.onFatal?.(error); return }
@@ -271,6 +308,51 @@ export class Pipeline {
       if (this.context.length > 8) this.context.shift()
     }
     this.record({ queueWait, stt: sttMs, firstToken, total: this.deps.now() - job.queuedAt })
+  }
+
+  /**
+   * Stream one translation attempt into the cue. Every attempt overwrites the
+   * previous translation (a newer partial or the final segment), instead of
+   * appending to it; the old text stays visible until the new attempt's first
+   * token arrives so the row does not blank out while waiting.
+   */
+  private async streamTranslation(
+    job: Job,
+    id: string,
+    source: string,
+    settings: ResolvedSettings,
+    transcribedAt: number,
+  ): Promise<{ translated: string; firstToken: number }> {
+    const signal = AbortSignal.any([this.jobSignal(job, TRANSLATE_TIMEOUT_MS), job.translation.signal])
+    let translated = ''
+    let firstToken = 0
+    let replaced = false
+    for await (const delta of this.deps.translator.translate({
+      text: source,
+      source: settings.sourceLanguage,
+      target: settings.targetLanguage,
+      context: this.context.slice(-settings.translate.contextTurns),
+      glossary: [...settings.translate.glossary],
+      brief: settings.translate.backgroundBrief,
+      signal,
+    })) {
+      if (this.cancelled(job)) break
+      if (firstToken === 0) firstToken = this.deps.now() - transcribedAt
+      if (replaced) {
+        this.deps.subtitles.appendTranslation(id, delta)
+      } else {
+        this.deps.subtitles.setTranslation(id, delta)
+        replaced = true
+        job.streamed = true
+      }
+      translated += delta
+      this.renderLatest()
+    }
+    return { translated, firstToken }
+  }
+
+  private cancelled(job: Job): boolean {
+    return job.abort.signal.aborted || job.translation.signal.aborted || this.lifetime.signal.aborted
   }
 
   private jobSignal(job: Job, timeoutMs: number): AbortSignal {

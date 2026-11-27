@@ -59,6 +59,7 @@ export function buildPrompt(req: TranslateRequest): { system: string; user: stri
   const system = [
     `You translate live subtitles from ${NAMES[req.source]} to ${NAMES[req.target]}.`,
     'Output ONLY the translation: no quotes, no explanations, no Markdown, no prefixes.',
+    'The current text may break off mid-sentence: translate only what is present and do not invent a completion.',
     'Keep proper nouns consistent. Keep it concise and natural for subtitles; do not merge or omit information.',
   ].join('\n')
   const parts: string[] = []

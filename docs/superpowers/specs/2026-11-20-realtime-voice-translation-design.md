@@ -560,6 +560,13 @@ dsh-rt-translation/
 - 行模型、`minReadMs` 滚动保护不变。
 - 多显示器拖动修复（2026-11-25）：不再用主屏 `WorkArea` 钳制拖动坐标，拖到副屏后保持位置；拖动期间的 cue 渲染不再与 `DragMove` 抢位置。
 
+## 19. 2026-11-27 修订：partial 增量翻译与覆盖
+
+- 原设计：final 识别完成后再翻译。现改为 partial 识别结果一到就流式翻译并上屏；后续 partial 与 final 各自重新翻译，用首个 delta 覆盖上一版译文（`SubtitleModel.setTranslation`），final 定稿后再覆盖一次。
+- 取消策略：`Pipeline.accept` 在新 partial 到来时只 abort 已经产出 token 的旧 partial 翻译（`job.translation`），不 abort STT；final 无条件抢占旧 partial 翻译。尚未产出首个 token 的 partial 不 abort，避免 900 ms 间隔下慢模型永远出不了第一版译文。
+- partial 翻译失败只记日志，不计入 fatal、不进上下文；`overlay.ps1` 在 target 更新时刷新 `readAt`，定稿译文仍保留完整的 `minReadMs`。
+- 验收：`npm test` 132/132；`npm run test:overlay` 11 + 5 + 1。
+
 
 
 

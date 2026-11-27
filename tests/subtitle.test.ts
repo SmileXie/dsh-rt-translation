@@ -39,6 +39,22 @@ test('hold 到期后移除', () => {
   m.tick(1001); assert.equal(m.snapshot().length, 0)
 })
 
+test('setTranslation 覆盖旧译文，后续 append 追加到新译文', () => {
+  const m = new SubtitleModel({ maxCues: 2, bilingual: true, holdMs: 1000 })
+  m.upsertSource('a', '你好', true)
+  m.beginTranslation('a'); m.appendTranslation('a', 'Hel')
+  m.setTranslation('a', 'Hello')
+  m.appendTranslation('a', ' there')
+  assert.equal(m.snapshot()[0].lines.find(l => l.kind === 'target')?.text, 'Hello there')
+})
+
+test('clearTranslation 移除旧译文，只留原文', () => {
+  const m = new SubtitleModel({ maxCues: 2, bilingual: true, holdMs: 1000 })
+  m.upsertSource('a', '你好', false); m.beginTranslation('a'); m.appendTranslation('a', 'Hello')
+  m.clearTranslation('a')
+  assert.deepEqual(m.snapshot()[0].lines.map(l => l.kind), ['source'])
+})
+
 test('空译文不会产生 target 行', () => {
   const m = new SubtitleModel({ maxCues: 2, bilingual: true, holdMs: 1000 })
   m.upsertSource('a', '你好', false); m.beginTranslation('a'); m.appendTranslation('a', '   ')

@@ -441,7 +441,10 @@ function Store-Cue($cue) {
     $existing.holdMs = [int]$cue.holdMs
     $existing.at = $now
     $existing.finished = $finished
-    if ($null -eq $existing.readAt -and ($hasTarget -or $finished)) { $existing.readAt = $now }
+    # A partial translation appears while the sentence is still being spoken, then
+    # gets overwritten by the final one. Keep restarting the reading window on every
+    # target update so the settled translation gets its full minReadMs before it scrolls.
+    if ($hasTarget -or $finished) { $existing.readAt = $now }
   } else {
     $script:seq++
     $entry = [pscustomobject]@{
@@ -809,6 +812,24 @@ function Run-SelfTestRows {
 
   Set-TestClock 11000
   Assert-Rows 't=11000 静音后保留历史行' 'c4,c5,c6'
+
+  # 说话过程中先出 partial 译文、随后被 final 覆盖时，阅读时间从 final 重新计时。
+  $script:cues.Clear()
+  Set-TestClock 20000
+  [void](Store-Cue (New-TestCue 'd1' '第一句' 'First.' $true))
+  Set-TestClock 20100
+  [void](Store-Cue (New-TestCue 'd2' '第二句' 'Partial.' $false))
+  Set-TestClock 22000
+  [void](Store-Cue (New-TestCue 'd2' '第二句' 'Final.' $true))
+  Set-TestClock 22100
+  [void](Store-Cue (New-TestCue 'd3' '第三句' '' $false))
+  Set-TestClock 22200
+  [void](Store-Cue (New-TestCue 'd4' '第四句' '' $false))
+  Assert-Rows 't=22200 第一句已读满，滚出窗口' 'd2,d3,d4'
+
+  Set-TestClock 22500
+  [void](Store-Cue (New-TestCue 'd5' '第五句' '' $false))
+  Assert-Rows 't=22500 final 译文重新计时，多保留一行' 'd2,d3,d4,d5'
 
   Write-Output ('SUMMARY failures=' + $script:selfTestStatus)
 }

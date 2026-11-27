@@ -64,6 +64,27 @@ export class SubtitleModel {
     line.text += delta
   }
 
+  /**
+   * Replace the cue's translation. A newer partial or the final segment owns the
+   * row: its first streamed token overwrites the previous attempt instead of
+   * appending to it.
+   */
+  setTranslation(id: string, text: string): void {
+    const cue = this.find(id)
+    if (cue === undefined) return
+    let line = cue.lines.find(l => l.kind === 'target')
+    if (line === undefined) { line = { kind: 'target', text: '', live: true }; cue.lines.push(line) }
+    line.text = text
+    line.live = true
+  }
+
+  /** Drop the translation so a cue that needs none (source is already the target language) shows its source only. */
+  clearTranslation(id: string): void {
+    const cue = this.find(id)
+    if (cue === undefined) return
+    cue.lines = cue.lines.filter(line => line.kind !== 'target')
+  }
+
   /** Replace a failed translation with the source plus a visible warning. */
   markFailed(id: string, warning: string): void {
     const cue = this.find(id)

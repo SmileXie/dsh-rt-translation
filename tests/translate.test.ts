@@ -6,6 +6,7 @@ test('buildPrompt 含语言名、术语与原文', () => {
   const { system, user } = buildPrompt({ text: 'Hermione 来了', source: 'zh', target: 'en', context: [], glossary: ['Hermione=赫敏'], signal: AbortSignal.timeout(1000) })
   assert.ok(system.includes('Chinese') && system.includes('English'))
   assert.ok(system.includes('Output ONLY the translation'))
+  assert.ok(system.includes('break off mid-sentence'), '部分识别文本可能不完整，提示模型不要补写')
   assert.ok(user.includes('Hermione=赫敏'))
   assert.ok(user.includes('[Current]\nHermione 来了'))
 })

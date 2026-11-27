@@ -128,6 +128,7 @@ test('final 等正在识别的 partial 完成后再覆盖它的文本', async ()
   await p.flush()
 
   const cue = d.renderer.last as { lines: Array<{ text: string }> }
+  // final 在 partial 仍在识别时就把它的翻译信号取消了，所以只翻译 final 一次。
   assert.equal(d.translator.calls, 1)
   assert.equal(cue.lines.some(line => line.text.includes('临时文本')), false)
   assert.equal(cue.lines.some(line => line.text === 'Hello'), true)
@@ -162,6 +163,82 @@ test('pipeline 把背景摘要传给翻译请求', async () => {
   const p = new Pipeline(d as never)
   await feedSegment(p)
   assert.equal((d.translator.lastRequest as { brief: string }).brief, '魔法学校一年级')
+})
+
+test('整句未收集完也先翻译，final 覆盖 partial 译文', async () => {
+  const d = deps()
+  ;(d.translator as { translate: unknown }).translate = async function* () {
+    d.translator.calls += 1
+    yield d.translator.calls === 1 ? '半句译文' : '完整译文'
+  }
+  const p = new Pipeline(d as never)
+
+  for (let i = 0; i < 70; i++) p.feed(loudChunk())
+  await p.flush()
+  const live = d.subtitles.snapshot().at(-1)
+  assert.equal(live?.finished, false)
+  assert.equal(live?.lines.find(line => line.kind === 'target')?.text, '半句译文')
+  assert.equal(d.translator.calls, 1)
+
+  for (let i = 0; i < 30; i++) p.feed(silence())
+  await p.flush()
+  const cue = d.subtitles.snapshot().at(-1)
+  assert.equal(cue?.finished, true)
+  assert.equal(cue?.lines.find(line => line.kind === 'target')?.text, '完整译文')
+})
+
+test('新的 partial 取消已上屏的旧 partial 翻译，再翻译新文本', async () => {
+  const d = deps()
+  const signals: AbortSignal[] = []
+  ;(d.translator as { translate: unknown }).translate = async function* (req: { signal: AbortSignal }) {
+    d.translator.calls += 1
+    const index = d.translator.calls
+    signals.push(req.signal)
+    if (index === 1) {
+      yield '旧译文'
+      await new Promise<void>((_resolve, reject) => {
+        req.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+      })
+      return
+    }
+    yield index === 2 ? '新译文' : '最终译文'
+  }
+  const p = new Pipeline(d as never)
+
+  for (let i = 0; i < 70; i++) p.feed(loudChunk())
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(d.translator.calls, 1)
+  assert.equal(signals[0].aborted, false)
+
+  for (let i = 0; i < 45; i++) p.feed(loudChunk())
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(signals[0].aborted, true, '新 partial 到来后取消已经上屏的旧译文')
+  assert.equal(d.translator.calls, 2)
+
+  for (let i = 0; i < 30; i++) p.feed(silence())
+  await p.flush()
+  const cue = d.subtitles.snapshot().at(-1)
+  assert.equal(cue?.lines.find(line => line.kind === 'target')?.text, '最终译文')
+})
+
+test('partial 翻译失败不闪警告，final 成功后正常显示', async () => {
+  const d = deps()
+  ;(d.translator as { translate: unknown }).translate = async function* () {
+    d.translator.calls += 1
+    if (d.translator.calls === 1) throw new Error('down')
+    yield 'Hello'
+  }
+  const p = new Pipeline(d as never)
+
+  for (let i = 0; i < 70; i++) p.feed(loudChunk())
+  await p.flush()
+  const live = d.subtitles.snapshot().at(-1)
+  assert.equal(live?.lines.some(line => line.text.includes('⚠')), false)
+
+  for (let i = 0; i < 30; i++) p.feed(silence())
+  await p.flush()
+  const cue = d.subtitles.snapshot().at(-1)
+  assert.equal(cue?.lines.find(line => line.kind === 'target')?.text, 'Hello')
 })
 
 
